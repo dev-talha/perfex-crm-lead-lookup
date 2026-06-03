@@ -198,7 +198,7 @@ $config['leadlookup'] = [
 Test:
 
 ```text
-https://your-crm-domain.com/leadlookup/by_phone?apikey=my-secret-static-key-2026&phone=01765447530
+https://your-crm-domain.com/leadlookup/by_phone?apikey=my-secret-static-key-2026&phone=01769947530
 ```
 
 ### 2. Configure Chatwoot Webhook Endpoint
@@ -426,7 +426,7 @@ php -l modules/leadlookup/models/Leadlookup_model.php
 Test phone lookup:
 
 ```bash
-curl "https://your-crm-domain.com/leadlookup/by_phone?apikey=my-secret-static-key-2026&phone=01765447530"
+curl "https://your-crm-domain.com/leadlookup/by_phone?apikey=my-secret-static-key-2026&phone=01765997530"
 ```
 
 Test Chatwoot lead creation:
@@ -441,7 +441,7 @@ curl -X POST "https://your-crm-domain.com/leadlookup/create_from_chatwoot" \
         "id": 681795,
         "name": "Abu Talha",
         "email": "talha@example.com",
-        "phone_number": "+8801765447530",
+        "phone_number": "+8801765997530",
         "additional_attributes": {
           "city": "Bogura",
           "country": "Bangladesh",
@@ -504,7 +504,7 @@ modules/leadlookup/config/leadlookup.php
 #### Example Request
 
 ```text
-https://your-crm-domain.com/leadlookup/by_phone?apikey=my-secret-static-key-2026&phone=01765447530
+https://your-crm-domain.com/leadlookup/by_phone?apikey=my-secret-static-key-2026&phone=01765997530
 ```
 
 #### Success Response
@@ -516,7 +516,7 @@ https://your-crm-domain.com/leadlookup/by_phone?apikey=my-secret-static-key-2026
     {
       "id": 123,
       "name": "Abu Talha",
-      "phonenumber": "+8801765447530",
+      "phonenumber": "+8801765997530",
       "email": "talha@example.com",
       "status": "New"
     }
@@ -569,7 +569,7 @@ Security is controlled by:
       "id": 681795,
       "name": "Abu Talha",
       "email": "talha@example.com",
-      "phone_number": "+8801765447530",
+      "phone_number": "+8801799447530",
       "additional_attributes": {
         "city": "Bogura",
         "country": "Bangladesh",
@@ -594,7 +594,7 @@ The module keeps the lead description clean:
 
 ```text
 Lead synced from Chatwoot webhook with
-Conversation link: https://app.unichat.com.bd/app/accounts/5/conversations/7966
+Conversation link: https://app.demo.com.bd/app/accounts/{id}/conversations/{conversation-id}
 ```
 
 #### Success Response
@@ -694,7 +694,7 @@ Make sure:
 Then call:
 
 ```text
-/leadlookup/by_phone?apikey=my-secret-static-key-2026&phone=01765447530
+/leadlookup/by_phone?apikey=my-secret-static-key-2026&phone=01765997530
 ```
 
 If OPcache is enabled, restart PHP-FPM or clear OPcache.
@@ -925,28 +925,6 @@ For feature requests, describe:
 - Report or UI requirements
 - Backward compatibility needs
 
-### Contact Information
-
-Update this section with your own details:
-
-```text
-Company: Your Company Name
-Email: support@example.com
-Website: https://example.com
-```
-
----
-
-## License
-
-This module is provided under a proprietary/commercial license unless otherwise specified.
-
-If releasing as open source, replace this section with the appropriate license, such as MIT, GPL, or Apache-2.0.
-
-```text
-Copyright © 2026 Your Company.
-All rights reserved.
-```
 
 ---
 
