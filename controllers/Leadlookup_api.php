@@ -1,7 +1,7 @@
 <?php
 defined('BASEPATH') or exit('No direct script access allowed');
 
-class Leadlookup extends AdminController
+class Leadlookup_api extends App_Controller
 {
     public function __construct()
     {
@@ -17,15 +17,32 @@ class Leadlookup extends AdminController
     /** Existing endpoint kept unchanged. */
     public function by_phone()
     {
-        $this->enforce_api_key();
         $phone = $this->sanitize_phone((string) $this->input->get('phone', true));
+        $authorized = $this->check_api_key();
+        if (!$authorized) {
+            $this->leadlookup_model->create_phone_lookup_log($phone, 'failed', 0, null, 'Invalid or missing API key.');
+            return $this->json_error(401, 'Invalid or missing API key.');
+        }
+
+        $domainCheck = $this->validate_allowed_domain([]);
+        if (!$domainCheck['ok']) {
+            $this->leadlookup_model->create_phone_lookup_log($phone, 'failed', 0, null, $domainCheck['message']);
+            return $this->json_error(403, $domainCheck['message'], [
+                'detected_sources' => $domainCheck['detected_sources'] ?? [],
+            ]);
+        }
+
         if ($phone === '') {
+            $this->leadlookup_model->create_phone_lookup_log($phone, 'failed', 0, null, 'Query parameter "phone" is required.');
             return $this->json_error(400, 'Query parameter "phone" is required.');
         }
         $leads = $this->leadlookup_model->find_leads_by_phone($phone);
         if (empty($leads)) {
+            $this->leadlookup_model->create_phone_lookup_log($phone, 'failed', 0, null, 'No leads found for the provided phone number.');
             return $this->json_error(404, 'No leads found for the provided phone number.');
         }
+        $firstLeadId = isset($leads[0]['id']) ? (int) $leads[0]['id'] : null;
+        $this->leadlookup_model->create_phone_lookup_log($phone, 'success', count($leads), $firstLeadId, '');
         return $this->json_success($leads, 200);
     }
 
@@ -77,315 +94,6 @@ class Leadlookup extends AdminController
             'lead' => $result['lead'],
             'message' => $result['message'],
         ], !empty($result['created']) ? 201 : 200);
-    }
-
-    /** Administrator-only settings, mapping, logs, and retry panel. */
-    public function settings()
-    {
-        if (!$this->is_admin_allowed()) {
-            access_denied('Lead Lookup');
-        }
-
-        if (function_exists('leadlookup_create_sync_logs_table')) {
-            leadlookup_create_sync_logs_table();
-        }
-
-        if ($this->input->post()) {
-            $settings = $this->input->post('settings');
-            if (!is_array($settings)) {
-                $settings = [];
-            }
-
-            $allowed = [
-                'leadlookup_chatwoot_allowed_domains',
-                'leadlookup_domain_ip_validation_enabled',
-                'leadlookup_chatwoot_default_status_id',
-                'leadlookup_chatwoot_default_source_id',
-                'leadlookup_chatwoot_default_assigned_id',
-                'leadlookup_chatwoot_save_payload',
-                'leadlookup_chatwoot_base_url',
-                'leadlookup_chatwoot_account_id',
-            ];
-
-            foreach ($allowed as $option) {
-                if (!array_key_exists($option, $settings)) {
-                    continue;
-                }
-
-                $value = $settings[$option];
-                if (is_array($value)) {
-                    $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-                }
-
-                // Never log secret values. Store them only in Perfex options table.
-                update_option($option, (string) $value);
-            }
-
-            set_alert('success', _l('settings_updated'));
-            redirect(admin_url('leadlookup/settings'));
-        }
-
-        $filters = [
-            'log_type' => 'lead_create',
-            'status' => trim((string) $this->input->get('status', true)),
-            'search' => trim((string) $this->input->get('search', true)),
-            'date_from' => trim((string) $this->input->get('date_from', true)),
-            'date_to' => trim((string) $this->input->get('date_to', true)),
-        ];
-        if ((string) $this->input->get('export', true) === 'csv') {
-            $this->export_sync_logs_csv($filters, 'leadlookup-sync-logs.csv');
-            return;
-        }
-
-        $perPage = (int) $this->input->get('per_page', true);
-        if (!in_array($perPage, [10, 25, 50, 100], true)) {
-            $perPage = 25;
-        }
-        $page = max(1, (int) $this->input->get('page', true));
-        $totalRows = $this->leadlookup_model->count_sync_logs_filtered($filters);
-        $totalPages = max(1, (int) ceil($totalRows / $perPage));
-        if ($page > $totalPages) {
-            $page = $totalPages;
-        }
-        $offset = ($page - 1) * $perPage;
-
-        $data['title'] = 'Lead Lookup';
-        $data['filters'] = $filters;
-        $data['logs'] = $this->leadlookup_model->get_sync_logs_filtered($filters, $perPage, $offset);
-        $data['pagination'] = [
-            'page' => $page,
-            'per_page' => $perPage,
-            'total_rows' => $totalRows,
-            'total_pages' => $totalPages,
-        ];
-        $data['can_delete_logs'] = true;
-        $data['base_url'] = admin_url('leadlookup/settings');
-        $data['delete_redirect'] = 'settings';
-        $data['table_title'] = 'Sync Logs';
-        $data['show_report_buttons'] = false;
-        $this->load->view('settings_page', $data);
-    }
-
-    /** Administrator-only debug/diagnostic page. */
-    public function debug()
-    {
-        if (!$this->is_admin_allowed()) {
-            access_denied('Lead Lookup');
-        }
-
-        if (function_exists('leadlookup_create_sync_logs_table')) {
-            leadlookup_create_sync_logs_table();
-        }
-
-        $data['title'] = 'Lead Lookup Debug';
-        $data['module_version'] = '1.3.4';
-        $data['endpoint'] = site_url('leadlookup/create_from_chatwoot');
-        $data['lookup_endpoint'] = site_url('leadlookup/by_phone');
-        $data['allowed_raw'] = get_option('leadlookup_chatwoot_allowed_domains');
-        $data['allowed_entries'] = $this->get_allowed_domains();
-        $data['log_table_exists'] = function_exists('leadlookup_sync_logs_table_exists') ? leadlookup_sync_logs_table_exists() : false;
-        $data['server'] = [
-            'REMOTE_ADDR' => isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '',
-            'HTTP_X_FORWARDED_FOR' => isset($_SERVER['HTTP_X_FORWARDED_FOR']) ? $_SERVER['HTTP_X_FORWARDED_FOR'] : '',
-            'HTTP_X_REAL_IP' => isset($_SERVER['HTTP_X_REAL_IP']) ? $_SERVER['HTTP_X_REAL_IP'] : '',
-            'HTTP_HOST' => isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '',
-            'PHP_VERSION' => PHP_VERSION,
-            'CI_VERSION' => defined('CI_VERSION') ? CI_VERSION : '',
-        ];
-
-        $testSource = trim((string) $this->input->get('source', true));
-        $data['test_source'] = $testSource;
-        $data['test_result'] = null;
-        if ($testSource !== '') {
-            $normalized = $this->normalize_domain($testSource);
-            $matched = false;
-            foreach ($data['allowed_entries'] as $allowed) {
-                if ($this->source_matches_allowed_entry($normalized, $allowed)) {
-                    $matched = true;
-                    break;
-                }
-            }
-            $data['test_result'] = [
-                'normalized' => $normalized,
-                'matched' => $matched,
-            ];
-        }
-
-        $this->load->view('debug_page', $data);
-    }
-
-    /** Role-based report page under Reports menu. */
-    public function report()
-    {
-        if (!$this->can_view_report()) {
-            access_denied('Lead Create Report');
-        }
-
-        if (function_exists('leadlookup_create_sync_logs_table')) {
-            leadlookup_create_sync_logs_table();
-        }
-
-        $filters = [
-            'log_type' => 'lead_create',
-            'status' => trim((string) $this->input->get('status', true)),
-            'search' => trim((string) $this->input->get('search', true)),
-            'date_from' => trim((string) $this->input->get('date_from', true)),
-            'date_to' => trim((string) $this->input->get('date_to', true)),
-        ];
-        if ((string) $this->input->get('export', true) === 'csv') {
-            $this->export_sync_logs_csv($filters, 'leadlookup-lead-create-report.csv', 'lead');
-            return;
-        }
-        $perPage = (int) $this->input->get('per_page', true);
-        if (!in_array($perPage, [10, 25, 50, 100], true)) {
-            $perPage = 25;
-        }
-        $page = max(1, (int) $this->input->get('page', true));
-        $totalRows = $this->leadlookup_model->count_sync_logs_filtered($filters);
-        $totalPages = max(1, (int) ceil($totalRows / $perPage));
-        if ($page > $totalPages) {
-            $page = $totalPages;
-        }
-        $offset = ($page - 1) * $perPage;
-
-        $data['title'] = 'Lead Create Report';
-        $data['report_title'] = 'Lead Create Report';
-        $data['report_description'] = 'Chatwoot webhook lead creation logs. Duplicate matches are shown as skipped when a non-Customer lead already exists by phone or email.';
-        $data['table_title'] = 'Sync Logs';
-        $data['filters'] = $filters;
-        $data['logs'] = $this->leadlookup_model->get_sync_logs_filtered($filters, $perPage, $offset);
-        $data['pagination'] = [
-            'page' => $page,
-            'per_page' => $perPage,
-            'total_rows' => $totalRows,
-            'total_pages' => $totalPages,
-        ];
-        $data['can_delete_logs'] = $this->can_delete_report_logs();
-        $data['base_url'] = admin_url('leadlookup/report');
-        $data['delete_redirect'] = 'report';
-        $data['allow_retry'] = false;
-        $this->load->view('report_page', $data);
-    }
-
-    /** Role-based phone lookup report page under Reports menu. */
-    public function phone_report()
-    {
-        if (!$this->can_view_phone_report()) {
-            access_denied('Phone Lookup Report');
-        }
-
-        if (function_exists('leadlookup_create_sync_logs_table')) {
-            leadlookup_create_sync_logs_table();
-        }
-
-        $filters = [
-            'log_type' => 'phone_lookup',
-            'status' => trim((string) $this->input->get('status', true)),
-            'search' => trim((string) $this->input->get('search', true)),
-            'date_from' => trim((string) $this->input->get('date_from', true)),
-            'date_to' => trim((string) $this->input->get('date_to', true)),
-        ];
-        if ((string) $this->input->get('export', true) === 'csv') {
-            $this->export_sync_logs_csv($filters, 'leadlookup-phone-lookup-report.csv', 'phone');
-            return;
-        }
-
-        $perPage = (int) $this->input->get('per_page', true);
-        if (!in_array($perPage, [10, 25, 50, 100], true)) {
-            $perPage = 25;
-        }
-        $page = max(1, (int) $this->input->get('page', true));
-        $totalRows = $this->leadlookup_model->count_sync_logs_filtered($filters);
-        $totalPages = max(1, (int) ceil($totalRows / $perPage));
-        if ($page > $totalPages) {
-            $page = $totalPages;
-        }
-        $offset = ($page - 1) * $perPage;
-
-        $data['title'] = 'Phone Lookup Report';
-        $data['report_title'] = 'Phone Lookup Report';
-        $data['report_description'] = 'Logs for the existing /leadlookup/by_phone endpoint.';
-        $data['table_title'] = 'Phone Lookup Logs';
-        $data['filters'] = $filters;
-        $data['logs'] = $this->leadlookup_model->get_sync_logs_filtered($filters, $perPage, $offset);
-        $data['pagination'] = [
-            'page' => $page,
-            'per_page' => $perPage,
-            'total_rows' => $totalRows,
-            'total_pages' => $totalPages,
-        ];
-        $data['can_delete_logs'] = $this->can_delete_phone_report_logs();
-        $data['base_url'] = admin_url('leadlookup/phone_report');
-        $data['delete_redirect'] = 'phone_report';
-        $data['allow_retry'] = false;
-        $this->load->view('report_page', $data);
-    }
-
-    /** Admin manual retry for failed/pending logs. */
-    public function retry_log($id)
-    {
-        if (!$this->is_admin_allowed()) {
-            return $this->json_error(403, 'Unauthorized action.');
-        }
-
-        $log = $this->leadlookup_model->get_sync_log((int) $id);
-        if (!$log) {
-            return $this->json_error(404, 'Sync log not found.');
-        }
-
-        $payload = json_decode((string) $log['payload'], true);
-        if (!is_array($payload)) {
-            return $this->json_error(422, 'Stored payload is missing or invalid.');
-        }
-
-        $result = $this->sync_chatwoot_payload($payload, (int) $id, 'manual_retry');
-        if (!$result['ok']) {
-            return $this->json_error($result['http_code'], $result['message']);
-        }
-        return $this->json_success($result, 200);
-    }
-
-    public function delete_log($id)
-    {
-        $redirectKey = (string) $this->input->get('redirect', true);
-        $canDelete = $redirectKey === 'phone_report' ? $this->can_delete_phone_report_logs() : ($redirectKey === 'settings' ? $this->is_admin_allowed() : $this->can_delete_report_logs());
-        if (!$canDelete) {
-            access_denied('Lead Lookup');
-        }
-        $this->leadlookup_model->delete_sync_log((int) $id);
-        set_alert('success', 'Sync log deleted.');
-        $redirectRaw = (string) $this->input->get('redirect', true);
-        if ($redirectRaw === 'phone_report') {
-            $redirect = admin_url('leadlookup/phone_report');
-        } elseif ($redirectRaw === 'report') {
-            $redirect = admin_url('leadlookup/report');
-        } else {
-            $redirect = admin_url('leadlookup/settings');
-        }
-        redirect($redirect);
-    }
-
-    public function bulk_delete_logs()
-    {
-        $redirectRaw = (string) $this->input->post('redirect');
-        $canDelete = $redirectRaw === 'phone_report' ? $this->can_delete_phone_report_logs() : ($redirectRaw === 'settings' ? $this->is_admin_allowed() : $this->can_delete_report_logs());
-        if (!$canDelete) {
-            access_denied('Lead Lookup');
-        }
-        $ids = $this->input->post('ids');
-        if (!is_array($ids)) {
-            $ids = [];
-        }
-        $deleted = $this->leadlookup_model->delete_sync_logs($ids);
-        set_alert('success', $deleted . ' sync log(s) deleted.');
-        if ($redirectRaw === 'phone_report') {
-            $redirect = admin_url('leadlookup/phone_report');
-        } elseif ($redirectRaw === 'report') {
-            $redirect = admin_url('leadlookup/report');
-        } else {
-            $redirect = admin_url('leadlookup/settings');
-        }
-        redirect($redirect);
     }
 
     private function sync_chatwoot_payload(array $payload, $logId, $verifiedDomain)
@@ -697,6 +405,8 @@ class Leadlookup extends AdminController
         }
 
         $candidates = $this->get_request_candidate_hosts($payload);
+        $detected = array_values(array_unique($candidates));
+
         foreach ($candidates as $candidate) {
             $normalized = $this->normalize_domain($candidate);
             if ($normalized === '') {
@@ -704,16 +414,27 @@ class Leadlookup extends AdminController
             }
             foreach ($allowedEntries as $allowed) {
                 if ($this->source_matches_allowed_entry($normalized, $allowed)) {
-                    return ['ok' => true, 'message' => '', 'domain' => $normalized];
+                    return [
+                        'ok' => true,
+                        'message' => '',
+                        'domain' => $normalized,
+                        'matched_allowed_entry' => $allowed,
+                        'detected_sources' => $detected,
+                    ];
                 }
             }
         }
 
+        $message = 'Request rejected because the incoming request domain/IP is not allowed. Payload referer is ignored for security validation.';
+        if (!empty($detected)) {
+            $message .= ' Detected request sources: ' . implode(', ', array_slice($detected, 0, 8));
+        }
+
         return [
             'ok' => false,
-            'message' => 'Request rejected because the incoming request domain/IP is not allowed. Payload referer is ignored for security validation.',
+            'message' => $message,
             'domain' => '',
-            'detected_sources' => array_values(array_unique($candidates)),
+            'detected_sources' => $detected,
         ];
     }
 
@@ -849,11 +570,66 @@ class Leadlookup extends AdminController
 
         $sourceIsIp = (bool) filter_var($source, FILTER_VALIDATE_IP);
         $allowedIsIp = (bool) filter_var($allowed, FILTER_VALIDATE_IP);
-        if ($sourceIsIp || $allowedIsIp) {
-            return $sourceIsIp && $allowedIsIp && hash_equals($allowed, $source);
+
+        if ($sourceIsIp && $allowedIsIp) {
+            return hash_equals($allowed, $source);
+        }
+
+        // Important for self-hosted Chatwoot: webhooks are server-to-server requests.
+        // Chatwoot usually does not send Origin/Referer, so adding only
+        // app.example.com to settings would not match unless we resolve that
+        // allowed domain to its server IP and compare it with REMOTE_ADDR / proxy IPs.
+        if ($sourceIsIp && !$allowedIsIp) {
+            $allowedIps = $this->resolve_domain_ips($allowed);
+            return in_array($source, $allowedIps, true);
+        }
+
+        if (!$sourceIsIp && $allowedIsIp) {
+            $sourceIps = $this->resolve_domain_ips($source);
+            return in_array($allowed, $sourceIps, true);
         }
 
         return $source === $allowed || substr($source, -1 * (strlen($allowed) + 1)) === '.' . $allowed;
+    }
+
+    private function resolve_domain_ips($domain)
+    {
+        $domain = $this->normalize_domain($domain);
+        if ($domain === '' || filter_var($domain, FILTER_VALIDATE_IP)) {
+            return [];
+        }
+
+        static $cache = [];
+        if (array_key_exists($domain, $cache)) {
+            return $cache[$domain];
+        }
+
+        $ips = [];
+
+        $aRecords = @gethostbynamel($domain);
+        if (is_array($aRecords)) {
+            foreach ($aRecords as $ip) {
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                    $ips[] = $ip;
+                }
+            }
+        }
+
+        if (function_exists('dns_get_record')) {
+            $records = @dns_get_record($domain, DNS_A + DNS_AAAA);
+            if (is_array($records)) {
+                foreach ($records as $record) {
+                    foreach (['ip', 'ipv6'] as $key) {
+                        if (!empty($record[$key]) && filter_var($record[$key], FILTER_VALIDATE_IP)) {
+                            $ips[] = $record[$key];
+                        }
+                    }
+                }
+            }
+        }
+
+        $cache[$domain] = array_values(array_unique($ips));
+        return $cache[$domain];
     }
 
     private function domain_matches($host, $allowed)
@@ -954,57 +730,30 @@ class Leadlookup extends AdminController
         return $this->truthy($value);
     }
 
-    private function export_sync_logs_csv(array $filters, $filename, $reportType = 'lead')
-    {
-        $allowed = $reportType === 'phone' ? $this->can_view_phone_report() : ($this->can_view_report() || $this->is_admin_allowed());
-        if (!$allowed) {
-            access_denied($reportType === 'phone' ? 'Phone Lookup Report' : 'Lead Create Report');
-        }
-        $rows = $this->leadlookup_model->get_sync_logs_filtered($filters, 5000, 0);
-        header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-        $out = fopen('php://output', 'w');
-        fputcsv($out, ['ID', 'Time', 'Status', 'Chatwoot Contact', 'Conversation', 'Lead', 'Attempts', 'Matched By', 'Error']);
-        foreach ($rows as $row) {
-            fputcsv($out, [
-                $row['id'] ?? '',
-                $row['created_at'] ?? '',
-                $row['status'] ?? '',
-                $row['chatwoot_contact_id'] ?? '',
-                $row['chatwoot_conversation_id'] ?? '',
-                $row['crm_lead_id'] ?? '',
-                $row['attempts'] ?? '',
-                $row['matched_by'] ?? '',
-                $row['error_message'] ?? '',
-            ]);
-        }
-        fclose($out);
-        exit;
-    }
-
-    private function can_view_report()
-    {
-        return (function_exists('is_admin') && is_admin()) || has_permission('leadlookup_reports', '', 'view');
-    }
-
-    private function can_delete_report_logs()
-    {
-        return (function_exists('is_admin') && is_admin()) || has_permission('leadlookup_reports', '', 'delete');
-    }
-
-    private function can_view_phone_report()
-    {
-        return (function_exists('is_admin') && is_admin()) || has_permission('leadlookup_phone_reports', '', 'view');
-    }
-
-    private function can_delete_phone_report_logs()
-    {
-        return (function_exists('is_admin') && is_admin()) || has_permission('leadlookup_phone_reports', '', 'delete');
-    }
-
     private function is_admin_allowed()
     {
         return function_exists('is_staff_logged_in') && is_staff_logged_in() && (function_exists('is_admin') && is_admin());
+    }
+
+
+    private function check_api_key()
+    {
+        // Phone lookup API key is intentionally static, same as the original module.
+        // Set it only in modules/leadlookup/config/leadlookup.php.
+        // It is not stored in Perfex options and it is not editable from the UI.
+        $cfg = (array) $this->config->item('leadlookup');
+        $expected = isset($cfg['api_key']) ? trim((string) $cfg['api_key']) : '';
+
+        $provided = trim((string) $this->input->get('apikey', true));
+        if ($provided === '') {
+            $provided = trim((string) $this->input->get_request_header('X-API-Key', true));
+        }
+
+        if ($expected === '' || $expected === 'YOUR_STATIC_SECRET_KEY_HERE') {
+            return false;
+        }
+
+        return function_exists('hash_equals') ? hash_equals($expected, $provided) : $expected === $provided;
     }
 
     private function json_success($data, $httpCode = 200)
