@@ -1,5 +1,4 @@
-# Lead Lookup & Chatwoot Lead Sync for Perfex CRM
-
+# Lead Lookup & Lead Create API from Chatwoot
 ![Version](https://img.shields.io/badge/version-1.3.6-blue.svg)
 ![Perfex CRM](https://img.shields.io/badge/Perfex%20CRM-Compatible-success.svg)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4.svg)
