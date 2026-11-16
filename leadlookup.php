@@ -30,6 +30,7 @@ function leadlookup_activation_hook()
         'leadlookup_chatwoot_save_payload'         => '1',
         'leadlookup_duplicate_check_email_enabled' => '1',
         'leadlookup_duplicate_check_phone_enabled' => '1',
+        'leadlookup_channel_source_mapping'        => '{}',
     ];
 
     foreach ($defaults as $name => $value) {

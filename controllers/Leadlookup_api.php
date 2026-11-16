@@ -252,6 +252,40 @@ class Leadlookup_api extends App_Controller
             $assignedStaffId = $this->get_optional_int_setting('leadlookup_chatwoot_default_assigned_id');
         }
 
+        // Chat Channel to Lead Source Mapping
+        $channelMapRaw = get_option('leadlookup_channel_source_mapping');
+        $channelMap = !empty($channelMapRaw) ? json_decode($channelMapRaw, true) : [];
+        if (!is_array($channelMap)) {
+            $channelMap = [];
+        }
+
+        $rawChannel = (string) (
+            $payload['channel'] 
+            ?? ($payload['conversation']['channel'] 
+            ?? ($payload['inbox']['channel_type'] 
+            ?? ($payload['contact_inbox']['channel_type'] 
+            ?? ($payload['meta']['channel'] ?? ''))))
+        );
+
+        $matchedSourceId = null;
+        if ($rawChannel !== '') {
+            if (isset($channelMap[$rawChannel]) && !empty($channelMap[$rawChannel])) {
+                $matchedSourceId = (int) $channelMap[$rawChannel];
+            } else {
+                foreach ($channelMap as $mappedChan => $sId) {
+                    if (strcasecmp($mappedChan, $rawChannel) === 0 || 
+                        strcasecmp(str_replace('Channel::', '', $mappedChan), str_replace('Channel::', '', $rawChannel)) === 0) {
+                        $matchedSourceId = (int) $sId;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if ($matchedSourceId === null || $matchedSourceId <= 0) {
+            $matchedSourceId = $this->get_optional_int_setting('leadlookup_chatwoot_default_source_id');
+        }
+
         $leadData = [
             'name' => $name,
             'email' => $email,
@@ -264,7 +298,7 @@ class Leadlookup_api extends App_Controller
             'description' => '',
             'address' => '',
             'status' => $this->get_optional_int_setting('leadlookup_chatwoot_default_status_id'),
-            'source' => $this->get_optional_int_setting('leadlookup_chatwoot_default_source_id'),
+            'source' => $matchedSourceId,
             'assigned' => $assignedStaffId,
             'is_public' => 0,
         ];

@@ -47,11 +47,13 @@ URL: `/admin/leadlookup/settings` (Setup -> Lead Creator & Lookup)
    - Save raw payload toggle (full JSON vs. summary).
 4. **Assignee Staff Mapping:**
    - Map UniChat Agent / Assignee IDs to Perfex CRM Staff Members.
-5. **UniChat Private Note Callback:**
+5. **Chat Source / Channel Mapping:**
+   - Map UniChat Channel types (`Channel::WebWidget`, `Channel::FacebookPage`, `Channel::Whatsapp`, `Channel::Email`, `Channel::Telegram`, `Channel::Instagram`, etc.) to Perfex CRM Lead Sources.
+6. **UniChat Private Note Callback:**
    - Enable/disable private note callback upon lead creation, skip, or failure.
    - UniChat Profile API Access Token field.
    - **Requirement Note:** If using a non-admin agent's API Token, that agent must be assigned to all target inboxes in UniChat where lead creation is required.
-6. **Phone Lookup API Configuration:**
+7. **Phone Lookup API Configuration:**
    - Configurable API Key management for `/leadlookup/by_phone`.
 
 ---

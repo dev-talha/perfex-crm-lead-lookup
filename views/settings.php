@@ -11,6 +11,26 @@ $assigneeMap = !empty($assigneeMapRaw) ? json_decode($assigneeMapRaw, true) : []
 if (!is_array($assigneeMap)) {
     $assigneeMap = [];
 }
+
+$channelMapRaw = get_option('leadlookup_channel_source_mapping');
+$channelMap = !empty($channelMapRaw) ? json_decode($channelMapRaw, true) : [];
+if (!is_array($channelMap)) {
+    $channelMap = [];
+}
+
+$availableChannels = [
+    'Channel::WebWidget'       => 'Website Widget (Channel::WebWidget)',
+    'Channel::FacebookPage'    => 'Facebook Page (Channel::FacebookPage)',
+    'Channel::Instagram'       => 'Instagram Direct (Channel::Instagram)',
+    'Channel::Whatsapp'        => 'WhatsApp (Channel::Whatsapp)',
+    'Channel::Email'           => 'Email (Channel::Email)',
+    'Channel::Telegram'        => 'Telegram (Channel::Telegram)',
+    'Channel::TwilioSms'       => 'Twilio SMS / WhatsApp (Channel::TwilioSms)',
+    'Channel::Sms'             => 'SMS (Channel::Sms)',
+    'Channel::Tiktok'          => 'TikTok (Channel::Tiktok)',
+    'Channel::TwitterProfile'  => 'Twitter / X (Channel::TwitterProfile)',
+    'Channel::Api'             => 'API Channel (Channel::Api)',
+];
 ?>
 
 <style>
@@ -66,6 +86,12 @@ if (!is_array($assigneeMap)) {
                         <a href="#tab_creator_mappings" aria-controls="tab_creator_mappings" role="tab" data-toggle="tab" class="tw-flex tw-items-center tw-gap-2.5">
                             <i class="fa-solid fa-user-gear fa-fw tw-text-neutral-500"></i>
                             <span>Assignee Staff Mapping</span>
+                        </a>
+                    </li>
+                    <li role="presentation">
+                        <a href="#tab_creator_channel_mapping" aria-controls="tab_creator_channel_mapping" role="tab" data-toggle="tab" class="tw-flex tw-items-center tw-gap-2.5">
+                            <i class="fa-solid fa-comments fa-fw tw-text-neutral-500"></i>
+                            <span>Chat Source Mapping</span>
                         </a>
                     </li>
                     <li role="presentation">
@@ -357,6 +383,96 @@ if (!is_array($assigneeMap)) {
                 <?php echo form_close(); ?>
             </div>
 
+            <!-- TAB: Chat Source / Channel Mapping -->
+            <div role="tabpanel" class="tab-pane" id="tab_creator_channel_mapping">
+                <?php echo form_open(admin_url('leadlookup/settings'), ['id' => 'leadlookup-channel-mapping-form']); ?>
+                <div class="panel_s">
+                    <div class="panel-body">
+                        <h4 class="bold tw-mt-0 tw-mb-1">UniChat Chat Source ➔ Perfex Lead Source Mapping</h4>
+                        <p class="text-muted">Map UniChat chat channel types (e.g. <code>Channel::WebWidget</code>, <code>Channel::FacebookPage</code>, <code>Channel::Whatsapp</code>) to Perfex CRM Lead Sources.</p>
+                        <hr class="hr-panel-heading" />
+
+                        <div class="alert alert-info tw-mb-4">
+                            <i class="fa-solid fa-circle-info tw-mr-1"></i> When a lead is created from a UniChat webhook, the module reads the <code>channel</code> parameter from the payload and automatically sets the corresponding <strong>Lead Source</strong> in Perfex CRM. If unmapped or missing, the <strong>Default Lead Source</strong> configured in <a href="#tab_creator_rules" onclick="$('a[href=\'#tab_creator_rules\']').tab('show');">Lead & Duplicate Rules</a> will be used.
+                        </div>
+
+                        <div class="table-responsive tw-mb-4">
+                            <table class="table table-bordered table-striped" id="channel_mapping_table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 45%;">UniChat Channel / Chat Source</th>
+                                        <th style="width: 45%;">Perfex CRM Lead Source</th>
+                                        <th style="width: 10%;" class="text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (!empty($channelMap)) {
+                                        foreach ($channelMap as $chan => $srcId) { ?>
+                                            <tr>
+                                                <td>
+                                                    <select name="settings[leadlookup_channel_source_mapping][channel][]" class="form-control">
+                                                        <option value="">-- Select Channel --</option>
+                                                        <?php foreach ($availableChannels as $cVal => $cLabel) { ?>
+                                                            <option value="<?php echo e($cVal); ?>" <?php echo ($cVal === $chan) ? 'selected' : ''; ?>>
+                                                                <?php echo e($cLabel); ?>
+                                                            </option>
+                                                        <?php } ?>
+                                                        <?php if (!isset($availableChannels[$chan]) && !empty($chan)) { ?>
+                                                            <option value="<?php echo e($chan); ?>" selected><?php echo e($chan); ?> (Custom)</option>
+                                                        <?php } ?>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select name="settings[leadlookup_channel_source_mapping][source_id][]" class="form-control">
+                                                        <option value="">-- Select Lead Source --</option>
+                                                        <?php foreach ($sourceList as $src) { ?>
+                                                            <option value="<?php echo $src['id']; ?>" <?php echo ((string)$src['id'] === (string)$srcId) ? 'selected' : ''; ?>>
+                                                                <?php echo e($src['name']); ?>
+                                                            </option>
+                                                        <?php } ?>
+                                                    </select>
+                                                </td>
+                                                <td class="text-center">
+                                                    <button type="button" class="btn btn-danger btn-xs remove-row-btn" onclick="$(this).closest('tr').remove()"><i class="fa fa-trash"></i></button>
+                                                </td>
+                                            </tr>
+                                        <?php }
+                                    } else { ?>
+                                        <tr>
+                                            <td>
+                                                <select name="settings[leadlookup_channel_source_mapping][channel][]" class="form-control">
+                                                    <option value="">-- Select Channel --</option>
+                                                    <?php foreach ($availableChannels as $cVal => $cLabel) { ?>
+                                                        <option value="<?php echo e($cVal); ?>"><?php echo e($cLabel); ?></option>
+                                                    <?php } ?>
+                                                </select>
+                                            </td>
+                                            <td>
+                                                <select name="settings[leadlookup_channel_source_mapping][source_id][]" class="form-control">
+                                                    <option value="">-- Select Lead Source --</option>
+                                                    <?php foreach ($sourceList as $src) { ?>
+                                                        <option value="<?php echo $src['id']; ?>"><?php echo e($src['name']); ?></option>
+                                                    <?php } ?>
+                                                </select>
+                                            </td>
+                                            <td class="text-center">
+                                                <button type="button" class="btn btn-danger btn-xs remove-row-btn" onclick="$(this).closest('tr').remove()"><i class="fa fa-trash"></i></button>
+                                            </td>
+                                        </tr>
+                                    <?php } ?>
+                                </tbody>
+                            </table>
+                            <button type="button" class="btn btn-default btn-sm" id="add_channel_row_btn" onclick="addChannelRow()"><i class="fa fa-plus tw-mr-1"></i> Add Channel Mapping</button>
+                            <button type="button" class="btn btn-info btn-sm tw-ml-2" onclick="addCustomChannelPrompt()"><i class="fa fa-keyboard tw-mr-1"></i> Add Custom Channel String</button>
+                        </div>
+                    </div>
+                    <div class="panel-footer text-right">
+                        <button type="submit" class="btn btn-primary"><?php echo _l('save'); ?></button>
+                    </div>
+                </div>
+                <?php echo form_close(); ?>
+            </div>
+
             <!-- TAB 5: UniChat Private Notes -->
             <div role="tabpanel" class="tab-pane" id="tab_creator_private_notes">
                 <?php echo form_open(admin_url('leadlookup/settings'), ['id' => 'leadlookup-private-notes-form']); ?>
@@ -429,6 +545,7 @@ if (!is_array($assigneeMap)) {
                                     <tr><td><code>sender.phone_number</code></td><td>Phone</td><td><span class="label label-default">Required if email missing</span></td></tr>
                                     <tr><td><code>sender.email</code></td><td>Email</td><td><span class="label label-default">Required if phone missing</span></td></tr>
                                     <tr><td><code>meta.assignee.id</code></td><td>Assigned Staff</td><td><span class="label label-success">Mapped via Assignee Staff Mapping</span></td></tr>
+                                    <tr><td><code>channel</code></td><td>Lead Source</td><td><span class="label label-success">Mapped via Chat Source Mapping</span></td></tr>
                                     <tr><td><code>additional_attributes.city</code></td><td>City</td><td><span class="label label-default">Auto mapped</span></td></tr>
                                     <tr><td><code>additional_attributes.description</code></td><td>Position / Title</td><td><span class="label label-default">Auto mapped</span></td></tr>
                                     <tr><td><code>additional_attributes.company_name</code></td><td>Company</td><td><span class="label label-default">Auto mapped</span></td></tr>
@@ -494,6 +611,46 @@ function addAssigneeRow() {
         '<td class="text-center"><button type="button" class="btn btn-danger btn-xs remove-row-btn" onclick="$(this).closest(\'tr\').remove()"><i class="fa fa-trash"></i></button></td>' +
         '</tr>';
     $('#assignee_mapping_table tbody').append(html);
+}
+
+var leadlookup_channelsList = <?php echo json_encode($availableChannels, JSON_UNESCAPED_UNICODE); ?>;
+var leadlookup_sourcesList = <?php echo json_encode(array_map(function($src) {
+    return [
+        'id' => (int) $src['id'],
+        'name' => trim($src['name'])
+    ];
+}, $sourceList), JSON_UNESCAPED_UNICODE); ?>;
+
+function addChannelRow(customValue) {
+    var channelSelectHtml = '<option value="">-- Select Channel --</option>';
+    var hasCustom = false;
+    $.each(leadlookup_channelsList, function(val, label) {
+        var sel = (customValue && customValue === val) ? ' selected' : '';
+        channelSelectHtml += '<option value="' + val + '"' + sel + '>' + $('<div>').text(label).html() + '</option>';
+        if (customValue && customValue === val) hasCustom = true;
+    });
+    if (customValue && !hasCustom) {
+        channelSelectHtml += '<option value="' + customValue + '" selected>' + $('<div>').text(customValue + ' (Custom)').html() + '</option>';
+    }
+
+    var sourceSelectHtml = '<option value="">-- Select Lead Source --</option>';
+    $.each(leadlookup_sourcesList, function(i, src) {
+        sourceSelectHtml += '<option value="' + src.id + '">' + $('<div>').text(src.name).html() + '</option>';
+    });
+
+    var html = '<tr>' +
+        '<td><select name="settings[leadlookup_channel_source_mapping][channel][]" class="form-control">' + channelSelectHtml + '</select></td>' +
+        '<td><select name="settings[leadlookup_channel_source_mapping][source_id][]" class="form-control">' + sourceSelectHtml + '</select></td>' +
+        '<td class="text-center"><button type="button" class="btn btn-danger btn-xs remove-row-btn" onclick="$(this).closest(\'tr\').remove()"><i class="fa fa-trash"></i></button></td>' +
+        '</tr>';
+    $('#channel_mapping_table tbody').append(html);
+}
+
+function addCustomChannelPrompt() {
+    var customChan = prompt('Enter custom channel string (e.g. Channel::Api or custom_channel):');
+    if (customChan && customChan.trim() !== '') {
+        addChannelRow(customChan.trim());
+    }
 }
 
 $(function() {

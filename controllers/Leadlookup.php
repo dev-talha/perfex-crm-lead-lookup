@@ -125,6 +125,33 @@ class Leadlookup extends AdminController
                 unset($settings['leadlookup_assignee_staff_mapping']);
             }
 
+            // Process channel source mapping array into JSON
+            if (isset($settings['leadlookup_channel_source_mapping'])) {
+                $cleanChanMap = [];
+                if (is_array($settings['leadlookup_channel_source_mapping'])) {
+                    $rawChanMap = $settings['leadlookup_channel_source_mapping'];
+                    if (isset($rawChanMap['channel'], $rawChanMap['source_id']) && is_array($rawChanMap['channel'])) {
+                        foreach ($rawChanMap['channel'] as $idx => $chan) {
+                            $chan = trim((string) $chan);
+                            $sId = trim((string) ($rawChanMap['source_id'][$idx] ?? ''));
+                            if ($chan !== '' && $sId !== '') {
+                                $cleanChanMap[$chan] = $sId;
+                            }
+                        }
+                    } else {
+                        foreach ($rawChanMap as $k => $v) {
+                            $k = trim((string) $k);
+                            $v = trim((string) $v);
+                            if ($k !== '' && $v !== '') {
+                                $cleanChanMap[$k] = $v;
+                            }
+                        }
+                    }
+                }
+                update_option('leadlookup_channel_source_mapping', json_encode($cleanChanMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                unset($settings['leadlookup_channel_source_mapping']);
+            }
+
             $allowed = [
                 'leadlookup_api_key',
                 'leadlookup_chatwoot_allowed_domains',
@@ -552,6 +579,40 @@ class Leadlookup extends AdminController
             $assignedStaffId = $this->get_optional_int_setting('leadlookup_chatwoot_default_assigned_id');
         }
 
+        // Chat Channel to Lead Source Mapping
+        $channelMapRaw = get_option('leadlookup_channel_source_mapping');
+        $channelMap = !empty($channelMapRaw) ? json_decode($channelMapRaw, true) : [];
+        if (!is_array($channelMap)) {
+            $channelMap = [];
+        }
+
+        $rawChannel = (string) (
+            $payload['channel'] 
+            ?? ($payload['conversation']['channel'] 
+            ?? ($payload['inbox']['channel_type'] 
+            ?? ($payload['contact_inbox']['channel_type'] 
+            ?? ($payload['meta']['channel'] ?? ''))))
+        );
+
+        $matchedSourceId = null;
+        if ($rawChannel !== '') {
+            if (isset($channelMap[$rawChannel]) && !empty($channelMap[$rawChannel])) {
+                $matchedSourceId = (int) $channelMap[$rawChannel];
+            } else {
+                foreach ($channelMap as $mappedChan => $sId) {
+                    if (strcasecmp($mappedChan, $rawChannel) === 0 || 
+                        strcasecmp(str_replace('Channel::', '', $mappedChan), str_replace('Channel::', '', $rawChannel)) === 0) {
+                        $matchedSourceId = (int) $sId;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if ($matchedSourceId === null || $matchedSourceId <= 0) {
+            $matchedSourceId = $this->get_optional_int_setting('leadlookup_chatwoot_default_source_id');
+        }
+
         $leadData = [
             'name' => $name,
             'email' => $email,
@@ -564,7 +625,7 @@ class Leadlookup extends AdminController
             'description' => '',
             'address' => '',
             'status' => $this->get_optional_int_setting('leadlookup_chatwoot_default_status_id'),
-            'source' => $this->get_optional_int_setting('leadlookup_chatwoot_default_source_id'),
+            'source' => $matchedSourceId,
             'assigned' => $assignedStaffId,
             'is_public' => 0,
         ];
