@@ -1,8 +1,8 @@
 # Lead Creator & Lookup Module
 
-Version 1.4.0
+Version 1.4.1
 
-An internal Perfex CRM module providing a webhook endpoint for **UniChat** lead creation and an API endpoint for **Phone Lookup**, featuring domain/IP security validation, configurable duplicate rules, assignee staff mapping, private note callbacks, and role-based activity reports.
+An internal Perfex CRM module providing a webhook endpoint for **UniChat** lead creation and an API endpoint for **Phone Lookup**, featuring domain/IP security validation, configurable duplicate rules, assignee staff mapping, chat source/channel mapping, private note callbacks, and role-based activity reports.
 
 ---
 
@@ -99,6 +99,14 @@ When upgrading from an older version (e.g. v1.3.9 to v1.4.0):
 ---
 
 ## Version Changelog
+
+### v1.4.1
+- **Phone Report Native DataTables UI:** Replaced legacy custom table with Perfex CRM native `render_datatable('phone-reports')` featuring server-side AJAX processing, live search, date filtering, pagination, and export tools.
+- **Phone Lookup Details Modal & Clear Logs:** Added an AJAX-powered modal for inspecting query summaries and client IP/user-agent details, along with a permission-based "Clear All Logs" button.
+- **Chat Source / Channel Mapping:** Added interactive mapping tab to link UniChat channel types (`Channel::WebWidget`, `Channel::FacebookPage`, `Channel::Whatsapp`, `Channel::Email`, `Channel::Telegram`, `Channel::Sms`, etc.) to specific Perfex CRM Lead Sources.
+- **UniChat Private Note Delivery Hardening:** Added HTTP redirect-following (`CURLOPT_FOLLOWLOCATION` & `CURLOPT_POSTREDIR`) to handle `.com.bd` -> `.bd` domain moves seamlessly, resilient `conversation_id` & `account_id` payload parsing, and detailed error logging.
+- **Database Performance Optimization:** Added `idx_created_at` index on `leadlookup_sync_logs` for lightning-fast date range filtering and cron log retention purging.
+- **Security Hardening:** Enforced robust output escaping with `html_escape()`, strict integer casting on AJAX and route parameters, and explicit route definitions in `routes.php`.
 
 ### v1.4.0
 - **UniChat Assignee ➔ Staff Mapping:** Added dynamic mapping between UniChat Agent/Assignee IDs and Perfex CRM Staff Members so created leads are automatically assigned to the correct staff.

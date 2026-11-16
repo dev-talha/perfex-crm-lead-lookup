@@ -16,13 +16,16 @@ $sIndexColumn = 'id';
 $sTable       = db_prefix() . 'leadlookup_sync_logs';
 
 $where = [
-    "AND log_type = 'phone_lookup'",
+    "AND " . db_prefix() . "leadlookup_sync_logs.log_type = 'phone_lookup'",
 ];
 
 // Support Date Filter from front-end
 if ($CI->input->post('report_date')) {
-    $date = to_sql_date($CI->input->post('report_date'));
-    array_push($where, 'AND ' . db_prefix() . 'leadlookup_sync_logs.created_at LIKE "' . $CI->db->escape_like_str($date) . '%" ESCAPE \'!\'');
+    $rawDate = $CI->input->post('report_date');
+    $date = function_exists('to_sql_date') ? to_sql_date($rawDate) : $rawDate;
+    if (!empty($date)) {
+        array_push($where, 'AND ' . db_prefix() . 'leadlookup_sync_logs.created_at LIKE "' . $CI->db->escape_like_str($date) . '%" ESCAPE \'!\'');
+    }
 }
 
 $join = [
@@ -61,12 +64,12 @@ foreach ($rResult as $aRow) {
     } elseif ($status === 'pending') {
         $statusBadge = 'info';
     }
-    $row[] = '<span class="label label-' . $statusBadge . '">' . ucfirst(e($status)) . '</span>';
+    $row[] = '<span class="label label-' . $statusBadge . '">' . ucfirst(html_escape($status)) . '</span>';
 
     // 3. Phone Number
     $summary = json_decode((string) $aRow['payload_summary'], true);
     $phone = is_array($summary) && !empty($summary['phone']) ? $summary['phone'] : 'N/A';
-    $row[] = '<a href="tel:' . e($phone) . '" class="tw-font-medium">' . e($phone) . '</a>';
+    $row[] = '<a href="tel:' . html_escape($phone) . '" class="tw-font-medium">' . html_escape($phone) . '</a>';
 
     // 4. Matched Lead
     $crmLeadId = (int) $aRow['crm_lead_id'];
@@ -74,10 +77,10 @@ foreach ($rResult as $aRow) {
         $leadName = !empty($aRow['lead_name']) ? $aRow['lead_name'] : ('#' . $crmLeadId);
         $leadUrl = admin_url('leads/index/' . $crmLeadId);
         $matchedHtml = '<a href="' . $leadUrl . '" onclick="init_lead(' . $crmLeadId . '); return false;" class="tw-font-semibold text-primary">'
-            . '<i class="fa-regular fa-user tw-mr-1"></i>' . e($leadName) 
+            . '<i class="fa-regular fa-user tw-mr-1"></i>' . html_escape($leadName) 
             . '</a>';
         if (!empty($aRow['lead_company'])) {
-            $matchedHtml .= '<br><small class="text-muted">' . e($aRow['lead_company']) . '</small>';
+            $matchedHtml .= '<br><small class="text-muted">' . html_escape($aRow['lead_company']) . '</small>';
         }
     } else {
         $matchedHtml = '<span class="text-muted">' . _l('not_found') . '</span>';
@@ -86,12 +89,12 @@ foreach ($rResult as $aRow) {
 
     // 5. IP Address
     $ip = is_array($summary) && !empty($summary['ip']) ? $summary['ip'] : '-';
-    $row[] = '<code>' . e($ip) . '</code>';
+    $row[] = '<code>' . html_escape($ip) . '</code>';
 
     // 6. Error / Note
     $error = !empty($aRow['error_message']) ? $aRow['error_message'] : '-';
     if ($error !== '-') {
-        $row[] = '<span class="text-danger tw-text-xs"><i class="fa-solid fa-triangle-exclamation tw-mr-1"></i>' . e($error) . '</span>';
+        $row[] = '<span class="text-danger tw-text-xs"><i class="fa-solid fa-triangle-exclamation tw-mr-1"></i>' . html_escape($error) . '</span>';
     } else {
         $row[] = '<span class="text-muted">-</span>';
     }
@@ -101,7 +104,7 @@ foreach ($rResult as $aRow) {
 
     // 8. Options
     $options = '<div class="tw-flex tw-items-center tw-space-x-2">';
-    $options .= '<button type="button" class="btn btn-default btn-icon view-phone-log-details" data-id="' . $aRow['id'] . '" title="View Details"><i class="fa-regular fa-eye"></i></button>';
+    $options .= '<button type="button" class="btn btn-default btn-icon view-phone-log-details" data-id="' . (int) $aRow['id'] . '" title="View Details"><i class="fa-regular fa-eye"></i></button>';
     if ($canDelete) {
         $options .= '<a href="' . admin_url('leadlookup/delete_log/' . $aRow['id'] . '?redirect=phone_report') . '" class="btn btn-danger btn-icon _delete" title="Delete Log"><i class="fa-regular fa-trash-can"></i></a>';
     }

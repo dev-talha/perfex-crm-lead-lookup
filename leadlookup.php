@@ -3,8 +3,8 @@ defined('BASEPATH') or exit('No direct script access allowed');
 
 /*
 Module Name: Lead Creator & Lookup
-Description: Internal API to lookup leads by phone and create leads from UniChat webhooks with domain/IP validation and role-based lead create reports under Utilities.
-Version: 1.4.0
+Description: Internal API to lookup leads by phone and create leads from UniChat webhooks with domain/IP validation, Chat Source Mapping, and role-based reports under Utilities.
+Version: 1.4.1
 Author: Internal
 */
 
@@ -31,6 +31,8 @@ function leadlookup_activation_hook()
         'leadlookup_duplicate_check_email_enabled' => '1',
         'leadlookup_duplicate_check_phone_enabled' => '1',
         'leadlookup_channel_source_mapping'        => '{}',
+        'leadlookup_chatwoot_private_note_enabled' => '1',
+        'leadlookup_chatwoot_api_token'            => '',
     ];
 
     foreach ($defaults as $name => $value) {
@@ -87,6 +89,7 @@ function leadlookup_create_sync_logs_table()
         KEY `idx_conversation` (`chatwoot_conversation_id`),
         KEY `idx_status` (`status`),
         KEY `idx_log_type` (`log_type`),
+        KEY `idx_created_at` (`created_at`),
         KEY `idx_lead` (`crm_lead_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
 
@@ -96,6 +99,14 @@ function leadlookup_create_sync_logs_table()
     if ($CI->db->table_exists($table) && !$CI->db->field_exists('log_type', $table)) {
         $CI->db->query("ALTER TABLE `{$table}` ADD `log_type` VARCHAR(30) NOT NULL DEFAULT 'lead_create' AFTER `id`");
         $CI->db->query("ALTER TABLE `{$table}` ADD KEY `idx_log_type` (`log_type`)");
+    }
+
+    // Add index on created_at for fast date filtering and log retention purging
+    if ($CI->db->table_exists($table)) {
+        $indexes = $CI->db->query("SHOW INDEX FROM `{$table}` WHERE Key_name = 'idx_created_at'")->result_array();
+        if (empty($indexes)) {
+            $CI->db->query("ALTER TABLE `{$table}` ADD KEY `idx_created_at` (`created_at`)");
+        }
     }
 
 

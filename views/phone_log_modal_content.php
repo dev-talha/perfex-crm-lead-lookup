@@ -19,11 +19,11 @@ $crmLeadId = !empty($log['crm_lead_id']) ? (int) $log['crm_lead_id'] : 0;
                 </tr>
                 <tr>
                     <td class="bold">Status</td>
-                    <td><span class="label label-<?php echo $statusClass; ?>"><?php echo ucfirst(e($status)); ?></span></td>
+                    <td><span class="label label-<?php echo $statusClass; ?>"><?php echo ucfirst(html_escape($status)); ?></span></td>
                 </tr>
                 <tr>
                     <td class="bold">Phone Queried</td>
-                    <td><a href="tel:<?php echo e($phone); ?>" class="bold"><?php echo e($phone); ?></a></td>
+                    <td><a href="tel:<?php echo html_escape($phone); ?>" class="bold"><?php echo html_escape($phone); ?></a></td>
                 </tr>
                 <tr>
                     <td class="bold">Results Found</td>
@@ -49,7 +49,7 @@ $crmLeadId = !empty($log['crm_lead_id']) ? (int) $log['crm_lead_id'] : 0;
                 </tr>
                 <tr>
                     <td class="bold">Client IP</td>
-                    <td><code><?php echo e($ip); ?></code></td>
+                    <td><code><?php echo html_escape($ip); ?></code></td>
                 </tr>
                 <tr>
                     <td class="bold">Date & Time</td>
@@ -57,7 +57,7 @@ $crmLeadId = !empty($log['crm_lead_id']) ? (int) $log['crm_lead_id'] : 0;
                 </tr>
                 <tr>
                     <td class="bold">User Agent</td>
-                    <td class="tw-text-xs tw-break-all text-muted"><?php echo e($userAgent); ?></td>
+                    <td class="tw-text-xs tw-break-all text-muted"><?php echo html_escape($userAgent); ?></td>
                 </tr>
             </tbody>
         </table>
@@ -67,7 +67,7 @@ $crmLeadId = !empty($log['crm_lead_id']) ? (int) $log['crm_lead_id'] : 0;
 <?php if (!empty($log['error_message'])) { ?>
     <div class="alert alert-danger tw-mt-2 tw-mb-2">
         <h5 class="bold tw-mt-0 tw-mb-1"><i class="fa-solid fa-triangle-exclamation tw-mr-1"></i> Error / Note:</h5>
-        <div><?php echo e($log['error_message']); ?></div>
+        <div><?php echo html_escape($log['error_message']); ?></div>
     </div>
 <?php } ?>
 
@@ -75,7 +75,7 @@ $crmLeadId = !empty($log['crm_lead_id']) ? (int) $log['crm_lead_id'] : 0;
     <div class="form-group tw-mt-3">
         <label class="bold text-muted">Raw Summary JSON:</label>
         <pre class="tw-bg-neutral-900 tw-text-emerald-400 tw-p-3 tw-rounded tw-text-xs" style="max-height:160px; overflow-y:auto;"><?php
-            echo e(json_encode($summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            echo html_escape(json_encode($summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         ?></pre>
     </div>
 <?php } ?>

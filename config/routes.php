@@ -11,6 +11,8 @@ $route['admin/leadlookup/retry_log/(:num)'] = 'leadlookup/retry_log/$1';
 $route['admin/leadlookup/debug'] = 'leadlookup/debug';
 $route['admin/leadlookup/report'] = 'leadlookup/report';
 $route['admin/leadlookup/phone_report'] = 'leadlookup/phone_report';
+$route['admin/leadlookup/phone_log_details/(:num)'] = 'leadlookup/phone_log_details/$1';
+$route['admin/leadlookup/clear_phone_logs'] = 'leadlookup/clear_phone_logs';
 $route['admin/leadlookup/delete_log/(:num)'] = 'leadlookup/delete_log/$1';
 $route['admin/leadlookup/bulk_delete_logs'] = 'leadlookup/bulk_delete_logs';
 
