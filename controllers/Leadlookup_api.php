@@ -307,10 +307,10 @@ class Leadlookup_api extends App_Controller
 
         $messageContent = $this->clean_multiline($payload['messages'][0]['content'] ?? ($payload['content'] ?? ''));
         $referer = $this->extract_referer_from_payload($payload);
-        $conversationId = (string) ($payload['id'] ?? ($payload['conversation']['id'] ?? ''));
+        $conversationId = (string) ($payload['conversation_id'] ?? ($payload['id'] ?? ($payload['conversation']['id'] ?? '')));
         $contactId = (string) ($sender['id'] ?? ($payload['contact_id'] ?? ''));
         $inboxId = (string) ($payload['inbox_id'] ?? ($payload['contact_inbox']['inbox_id'] ?? ''));
-        $accountId = (string) ($payload['account']['id'] ?? $this->get_string_setting('leadlookup_chatwoot_account_id', $this->get_config_string('chatwoot_account_id', '')));
+        $accountId = (string) ($payload['account']['id'] ?? ($payload['account_id'] ?? $this->get_string_setting('leadlookup_chatwoot_account_id', $this->get_config_string('chatwoot_account_id', ''))));
         $event = (string) ($payload['event'] ?? '');
         $conversationUrl = $this->build_chatwoot_conversation_url($payload);
 

@@ -461,9 +461,9 @@ class Leadlookup_model extends App_Model
         }
         return [
             'contact_id' => (string) ($sender['id'] ?? ($payload['contact_id'] ?? '')),
-            'conversation_id' => (string) ($payload['id'] ?? ($payload['conversation']['id'] ?? '')),
+            'conversation_id' => (string) ($payload['conversation_id'] ?? ($payload['id'] ?? ($payload['conversation']['id'] ?? ''))),
             'inbox_id' => (string) ($payload['inbox_id'] ?? ($payload['contact_inbox']['inbox_id'] ?? '')),
-            'account_id' => (string) ($payload['account']['id'] ?? ''),
+            'account_id' => (string) ($payload['account']['id'] ?? ($payload['account_id'] ?? '')),
             'name' => (string) ($sender['name'] ?? ''),
             'email' => (string) ($sender['email'] ?? ''),
             'phone' => (string) ($sender['phone_number'] ?? ($sender['phone'] ?? '')),
@@ -595,8 +595,17 @@ class Leadlookup_model extends App_Model
         }
         $baseUrl = rtrim($baseUrl, '/');
 
-        $accountId = (string) ($payload['account']['id'] ?? get_option('leadlookup_chatwoot_account_id'));
-        $conversationId = (string) ($payload['id'] ?? ($payload['conversation']['id'] ?? ($payload['messages'][0]['conversation_id'] ?? '')));
+        $accountId = (string) (
+            $payload['account']['id'] 
+            ?? ($payload['account_id'] 
+            ?? get_option('leadlookup_chatwoot_account_id'))
+        );
+        $conversationId = (string) (
+            $payload['conversation_id'] 
+            ?? ($payload['id'] 
+            ?? ($payload['conversation']['id'] 
+            ?? ($payload['messages'][0]['conversation_id'] ?? '')))
+        );
 
         if ($accountId === '' || $conversationId === '') {
             return false;
@@ -686,6 +695,8 @@ class Leadlookup_model extends App_Model
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_POSTREDIR, defined('CURL_REDIR_POST_ALL') ? CURL_REDIR_POST_ALL : 3);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',
             'api_access_token: ' . $apiToken,
@@ -696,6 +707,10 @@ class Leadlookup_model extends App_Model
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
+
+        if ($httpCode < 200 || $httpCode >= 300) {
+            log_message('error', 'Leadlookup: Failed to send UniChat private note. HTTP: ' . $httpCode . ', URL: ' . $apiUrl . ', Response: ' . $response);
+        }
 
         return $httpCode >= 200 && $httpCode < 300;
     }
