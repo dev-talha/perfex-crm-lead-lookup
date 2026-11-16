@@ -291,53 +291,46 @@ class Leadlookup extends AdminController
         $retentionDays = $this->get_retention_days();
         $this->leadlookup_model->purge_old_sync_logs($retentionDays, 'phone_lookup');
 
-        $getStatus = $this->input->get('status', true);
-        $getSearch = $this->input->get('search', true);
-        $getDateFrom = $this->input->get('date_from', true);
-        $getDateTo = $this->input->get('date_to', true);
+        if ($this->input->is_ajax_request()) {
+            $this->app->get_table_data(module_views_path('leadlookup', 'tables/phone_report_table'));
+        }
 
-        $filters = [
-            'log_type' => 'phone_lookup',
-            'status' => trim((string) ($getStatus !== null && $getStatus !== '' ? $getStatus : $this->input->get('lookup_status', true))),
-            'search' => trim((string) ($getSearch !== null && $getSearch !== '' ? $getSearch : $this->input->get('lookup_search', true))),
-            'date_from' => trim((string) ($getDateFrom !== null && $getDateFrom !== '' ? $getDateFrom : $this->input->get('lookup_date_from', true))),
-            'date_to' => trim((string) ($getDateTo !== null && $getDateTo !== '' ? $getDateTo : $this->input->get('lookup_date_to', true))),
-        ];
-        if ((string) $this->input->get('export', true) === 'csv') {
-            $this->export_sync_logs_csv($filters, 'leadlookup-phone-report.csv', 'phone');
+        $data['title'] = 'Phone Lookup Report';
+        $data['can_delete_logs'] = $this->can_delete_phone_report_logs();
+        $data['retention_days'] = $retentionDays;
+
+        $this->load->view('phone_report_page', $data);
+    }
+
+    /** AJAX details modal for single phone lookup log */
+    public function phone_log_details($id)
+    {
+        if (!$this->can_view_phone_report()) {
+            ajax_access_denied();
+        }
+
+        $log = $this->leadlookup_model->get_sync_log((int) $id);
+        if (!$log || $log['log_type'] !== 'phone_lookup') {
+            echo '<div class="alert alert-danger">Log entry not found.</div>';
             return;
         }
 
-        $perPage = (int) ($this->input->get('per_page', true) ?? $this->input->get('lookup_per_page', true));
-        if (!in_array($perPage, [10, 25, 50, 100], true)) {
-            $perPage = 25;
-        }
-        $page = max(1, (int) ($this->input->get('page', true) ?? $this->input->get('lookup_page', true)));
-        $totalRows = $this->leadlookup_model->count_sync_logs_filtered($filters);
-        $totalPages = max(1, (int) ceil($totalRows / $perPage));
-        if ($page > $totalPages) {
-            $page = $totalPages;
-        }
-        $offset = ($page - 1) * $perPage;
+        $data['log'] = $log;
+        $this->load->view('phone_log_modal_content', $data);
+    }
 
-        $data['title'] = 'Phone Lookup Search Report';
-        $data['report_title'] = 'Phone Lookup Search Report';
-        $data['report_description'] = 'Phone lookup query activity logs via API. Logs older than ' . $retentionDays . ' days are automatically purged.';
-        $data['table_title'] = 'Phone Lookup Search Activity Logs';
-        $data['filters'] = $filters;
-        $data['logs'] = $this->leadlookup_model->get_sync_logs_filtered($filters, $perPage, $offset);
-        $data['pagination'] = [
-            'page' => $page,
-            'per_page' => $perPage,
-            'total_rows' => $totalRows,
-            'total_pages' => $totalPages,
-        ];
-        $data['summary_counts'] = $this->leadlookup_model->get_sync_logs_summary('phone_lookup', $filters);
-        $data['can_delete_logs'] = $this->can_delete_phone_report_logs();
-        $data['base_url'] = admin_url('leadlookup/phone_report');
-        $data['delete_redirect'] = 'phone_report';
-        $data['allow_retry'] = false;
-        $this->load->view('phone_report_page', $data);
+    /** Clear all phone lookup logs */
+    public function clear_phone_logs()
+    {
+        if (!$this->can_delete_phone_report_logs()) {
+            access_denied('Phone Lookup Report');
+        }
+
+        $this->db->where('log_type', 'phone_lookup');
+        $this->db->delete(db_prefix() . 'leadlookup_sync_logs');
+
+        set_alert('success', 'All phone lookup search logs cleared successfully.');
+        redirect(admin_url('leadlookup/phone_report'));
     }
 
     /** Admin manual retry for failed/pending logs. */
