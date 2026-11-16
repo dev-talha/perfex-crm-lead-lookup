@@ -6,7 +6,7 @@ $config['leadlookup'] = [
     'api_key' => 'YOUR_STATIC_SECRET_KEY_HERE',
     'phone_match' => 'like',
 
-    // Chatwoot lead sync defaults.
+    // UniChat lead sync defaults.
     'chatwoot_default_status_id'   => '',
     'chatwoot_default_source_id'   => '',
     'chatwoot_default_assigned_id' => '',

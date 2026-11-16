@@ -32,14 +32,18 @@ class Leadlookup extends AdminController
     /** POST /leadlookup/create_from_chatwoot */
     public function create_from_chatwoot()
     {
-        if (strtoupper((string) $this->input->method(true)) !== 'POST') {
+        $rawBody = (string) $this->input->raw_input_stream;
+        $method = strtoupper((string) $this->input->method(true));
+
+        if ($method !== 'POST') {
+            $this->leadlookup_model->create_sync_log(['error' => 'HTTP method ' . $method . ' used.'], 'failed', 'Only POST requests are allowed. Received ' . $method . ' request.', $rawBody);
             return $this->json_error(405, 'Only POST requests are allowed.');
         }
 
-        $rawBody = (string) $this->input->raw_input_stream;
         $payload = json_decode($rawBody, true);
         if (!is_array($payload)) {
-            return $this->json_error(400, 'Invalid JSON payload.');
+            $this->leadlookup_model->create_sync_log(['raw_body' => $rawBody], 'failed', 'Invalid or empty JSON payload received.', $rawBody);
+            return $this->json_error(400, 'Invalid JSON payload. Payload must be valid JSON in application/json format.');
         }
 
         // Create the sync log before domain/IP validation so every valid JSON hit
@@ -96,15 +100,46 @@ class Leadlookup extends AdminController
                 $settings = [];
             }
 
+            // Process assignee staff mapping array into JSON
+            if (isset($settings['leadlookup_assignee_staff_mapping']) && is_array($settings['leadlookup_assignee_staff_mapping'])) {
+                $rawMap = $settings['leadlookup_assignee_staff_mapping'];
+                $cleanMap = [];
+                if (isset($rawMap['unichat_id'], $rawMap['staff_id']) && is_array($rawMap['unichat_id'])) {
+                    foreach ($rawMap['unichat_id'] as $idx => $uId) {
+                        $uId = trim((string) $uId);
+                        $sId = trim((string) ($rawMap['staff_id'][$idx] ?? ''));
+                        if ($uId !== '' && $sId !== '') {
+                            $cleanMap[$uId] = $sId;
+                        }
+                    }
+                } else {
+                    foreach ($rawMap as $k => $v) {
+                        $k = trim((string) $k);
+                        $v = trim((string) $v);
+                        if ($k !== '' && $v !== '') {
+                            $cleanMap[$k] = $v;
+                        }
+                    }
+                }
+                update_option('leadlookup_assignee_staff_mapping', json_encode($cleanMap, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                unset($settings['leadlookup_assignee_staff_mapping']);
+            }
+
             $allowed = [
+                'leadlookup_api_key',
                 'leadlookup_chatwoot_allowed_domains',
                 'leadlookup_domain_ip_validation_enabled',
+                'leadlookup_log_retention_days',
                 'leadlookup_chatwoot_default_status_id',
                 'leadlookup_chatwoot_default_source_id',
                 'leadlookup_chatwoot_default_assigned_id',
                 'leadlookup_chatwoot_save_payload',
+                'leadlookup_duplicate_check_email_enabled',
+                'leadlookup_duplicate_check_phone_enabled',
                 'leadlookup_chatwoot_base_url',
                 'leadlookup_chatwoot_account_id',
+                'leadlookup_chatwoot_private_note_enabled',
+                'leadlookup_chatwoot_api_token',
             ];
 
             foreach ($allowed as $option) {
@@ -125,44 +160,10 @@ class Leadlookup extends AdminController
             redirect(admin_url('leadlookup/settings'));
         }
 
-        $filters = [
-            'log_type' => 'lead_create',
-            'status' => trim((string) $this->input->get('status', true)),
-            'search' => trim((string) $this->input->get('search', true)),
-            'date_from' => trim((string) $this->input->get('date_from', true)),
-            'date_to' => trim((string) $this->input->get('date_to', true)),
-        ];
-        if ((string) $this->input->get('export', true) === 'csv') {
-            $this->export_sync_logs_csv($filters, 'leadlookup-sync-logs.csv');
-            return;
-        }
+        // Auto purge all sync logs based on configured retention period
+        $this->leadlookup_model->purge_old_sync_logs();
 
-        $perPage = (int) $this->input->get('per_page', true);
-        if (!in_array($perPage, [10, 25, 50, 100], true)) {
-            $perPage = 25;
-        }
-        $page = max(1, (int) $this->input->get('page', true));
-        $totalRows = $this->leadlookup_model->count_sync_logs_filtered($filters);
-        $totalPages = max(1, (int) ceil($totalRows / $perPage));
-        if ($page > $totalPages) {
-            $page = $totalPages;
-        }
-        $offset = ($page - 1) * $perPage;
-
-        $data['title'] = 'Lead Lookup';
-        $data['filters'] = $filters;
-        $data['logs'] = $this->leadlookup_model->get_sync_logs_filtered($filters, $perPage, $offset);
-        $data['pagination'] = [
-            'page' => $page,
-            'per_page' => $perPage,
-            'total_rows' => $totalRows,
-            'total_pages' => $totalPages,
-        ];
-        $data['can_delete_logs'] = true;
-        $data['base_url'] = admin_url('leadlookup/settings');
-        $data['delete_redirect'] = 'settings';
-        $data['table_title'] = 'Sync Logs';
-        $data['show_report_buttons'] = false;
+        $data['title'] = 'Lead Creator & Lookup Settings';
         $this->load->view('settings_page', $data);
     }
 
@@ -178,7 +179,7 @@ class Leadlookup extends AdminController
         }
 
         $data['title'] = 'Lead Lookup Debug';
-        $data['module_version'] = '1.3.4';
+        $data['module_version'] = '1.4.0';
         $data['endpoint'] = site_url('leadlookup/create_from_chatwoot');
         $data['lookup_endpoint'] = site_url('leadlookup/by_phone');
         $data['allowed_raw'] = get_option('leadlookup_chatwoot_allowed_domains');
@@ -214,7 +215,7 @@ class Leadlookup extends AdminController
         $this->load->view('debug_page', $data);
     }
 
-    /** Role-based report page under Reports menu. */
+    /** Role-based lead create report page under Utilities menu. */
     public function report()
     {
         if (!$this->can_view_report()) {
@@ -225,22 +226,30 @@ class Leadlookup extends AdminController
             leadlookup_create_sync_logs_table();
         }
 
+        $retentionDays = $this->get_retention_days();
+        $this->leadlookup_model->purge_old_sync_logs($retentionDays, 'lead_create');
+
+        $getStatus = $this->input->get('status', true);
+        $getSearch = $this->input->get('search', true);
+        $getDateFrom = $this->input->get('date_from', true);
+        $getDateTo = $this->input->get('date_to', true);
+
         $filters = [
             'log_type' => 'lead_create',
-            'status' => trim((string) $this->input->get('status', true)),
-            'search' => trim((string) $this->input->get('search', true)),
-            'date_from' => trim((string) $this->input->get('date_from', true)),
-            'date_to' => trim((string) $this->input->get('date_to', true)),
+            'status' => trim((string) ($getStatus !== null && $getStatus !== '' ? $getStatus : $this->input->get('creator_status', true))),
+            'search' => trim((string) ($getSearch !== null && $getSearch !== '' ? $getSearch : $this->input->get('creator_search', true))),
+            'date_from' => trim((string) ($getDateFrom !== null && $getDateFrom !== '' ? $getDateFrom : $this->input->get('creator_date_from', true))),
+            'date_to' => trim((string) ($getDateTo !== null && $getDateTo !== '' ? $getDateTo : $this->input->get('creator_date_to', true))),
         ];
         if ((string) $this->input->get('export', true) === 'csv') {
             $this->export_sync_logs_csv($filters, 'leadlookup-lead-create-report.csv', 'lead');
             return;
         }
-        $perPage = (int) $this->input->get('per_page', true);
+        $perPage = (int) ($this->input->get('per_page', true) ?? $this->input->get('creator_per_page', true));
         if (!in_array($perPage, [10, 25, 50, 100], true)) {
             $perPage = 25;
         }
-        $page = max(1, (int) $this->input->get('page', true));
+        $page = max(1, (int) ($this->input->get('page', true) ?? $this->input->get('creator_page', true)));
         $totalRows = $this->leadlookup_model->count_sync_logs_filtered($filters);
         $totalPages = max(1, (int) ceil($totalRows / $perPage));
         if ($page > $totalPages) {
@@ -250,8 +259,8 @@ class Leadlookup extends AdminController
 
         $data['title'] = 'Lead Create Report';
         $data['report_title'] = 'Lead Create Report';
-        $data['report_description'] = 'Chatwoot webhook lead creation logs. Duplicate matches are shown as skipped when a non-Customer lead already exists by phone or email.';
-        $data['table_title'] = 'Sync Logs';
+        $data['report_description'] = 'UniChat webhook lead creation logs. Logs older than ' . $retentionDays . ' days are automatically purged.';
+        $data['table_title'] = 'Lead Create Activity Logs';
         $data['filters'] = $filters;
         $data['logs'] = $this->leadlookup_model->get_sync_logs_filtered($filters, $perPage, $offset);
         $data['pagination'] = [
@@ -260,14 +269,15 @@ class Leadlookup extends AdminController
             'total_rows' => $totalRows,
             'total_pages' => $totalPages,
         ];
+        $data['summary_counts'] = $this->leadlookup_model->get_sync_logs_summary('lead_create', $filters);
         $data['can_delete_logs'] = $this->can_delete_report_logs();
         $data['base_url'] = admin_url('leadlookup/report');
         $data['delete_redirect'] = 'report';
-        $data['allow_retry'] = false;
+        $data['allow_retry'] = true;
         $this->load->view('report_page', $data);
     }
 
-    /** Role-based phone lookup report page under Reports menu. */
+    /** Standalone role-based phone lookup report page under Utilities menu. */
     public function phone_report()
     {
         if (!$this->can_view_phone_report()) {
@@ -278,23 +288,31 @@ class Leadlookup extends AdminController
             leadlookup_create_sync_logs_table();
         }
 
+        $retentionDays = $this->get_retention_days();
+        $this->leadlookup_model->purge_old_sync_logs($retentionDays, 'phone_lookup');
+
+        $getStatus = $this->input->get('status', true);
+        $getSearch = $this->input->get('search', true);
+        $getDateFrom = $this->input->get('date_from', true);
+        $getDateTo = $this->input->get('date_to', true);
+
         $filters = [
             'log_type' => 'phone_lookup',
-            'status' => trim((string) $this->input->get('status', true)),
-            'search' => trim((string) $this->input->get('search', true)),
-            'date_from' => trim((string) $this->input->get('date_from', true)),
-            'date_to' => trim((string) $this->input->get('date_to', true)),
+            'status' => trim((string) ($getStatus !== null && $getStatus !== '' ? $getStatus : $this->input->get('lookup_status', true))),
+            'search' => trim((string) ($getSearch !== null && $getSearch !== '' ? $getSearch : $this->input->get('lookup_search', true))),
+            'date_from' => trim((string) ($getDateFrom !== null && $getDateFrom !== '' ? $getDateFrom : $this->input->get('lookup_date_from', true))),
+            'date_to' => trim((string) ($getDateTo !== null && $getDateTo !== '' ? $getDateTo : $this->input->get('lookup_date_to', true))),
         ];
         if ((string) $this->input->get('export', true) === 'csv') {
-            $this->export_sync_logs_csv($filters, 'leadlookup-phone-lookup-report.csv', 'phone');
+            $this->export_sync_logs_csv($filters, 'leadlookup-phone-report.csv', 'phone');
             return;
         }
 
-        $perPage = (int) $this->input->get('per_page', true);
+        $perPage = (int) ($this->input->get('per_page', true) ?? $this->input->get('lookup_per_page', true));
         if (!in_array($perPage, [10, 25, 50, 100], true)) {
             $perPage = 25;
         }
-        $page = max(1, (int) $this->input->get('page', true));
+        $page = max(1, (int) ($this->input->get('page', true) ?? $this->input->get('lookup_page', true)));
         $totalRows = $this->leadlookup_model->count_sync_logs_filtered($filters);
         $totalPages = max(1, (int) ceil($totalRows / $perPage));
         if ($page > $totalPages) {
@@ -302,10 +320,10 @@ class Leadlookup extends AdminController
         }
         $offset = ($page - 1) * $perPage;
 
-        $data['title'] = 'Phone Lookup Report';
-        $data['report_title'] = 'Phone Lookup Report';
-        $data['report_description'] = 'Logs for the existing /leadlookup/by_phone endpoint.';
-        $data['table_title'] = 'Phone Lookup Logs';
+        $data['title'] = 'Phone Lookup Search Report';
+        $data['report_title'] = 'Phone Lookup Search Report';
+        $data['report_description'] = 'Phone lookup query activity logs via API. Logs older than ' . $retentionDays . ' days are automatically purged.';
+        $data['table_title'] = 'Phone Lookup Search Activity Logs';
         $data['filters'] = $filters;
         $data['logs'] = $this->leadlookup_model->get_sync_logs_filtered($filters, $perPage, $offset);
         $data['pagination'] = [
@@ -314,11 +332,12 @@ class Leadlookup extends AdminController
             'total_rows' => $totalRows,
             'total_pages' => $totalPages,
         ];
+        $data['summary_counts'] = $this->leadlookup_model->get_sync_logs_summary('phone_lookup', $filters);
         $data['can_delete_logs'] = $this->can_delete_phone_report_logs();
         $data['base_url'] = admin_url('leadlookup/phone_report');
         $data['delete_redirect'] = 'phone_report';
         $data['allow_retry'] = false;
-        $this->load->view('report_page', $data);
+        $this->load->view('phone_report_page', $data);
     }
 
     /** Admin manual retry for failed/pending logs. */
@@ -399,13 +418,20 @@ class Leadlookup extends AdminController
                     'status' => 'failed',
                     'error_message' => $validation['message'],
                 ]);
+                $this->leadlookup_model->send_chatwoot_private_note($payload, 'failed', [
+                    'error_message' => $validation['message'],
+                ]);
                 return ['ok' => false, 'http_code' => 422, 'message' => $validation['message']];
             }
 
             $leadData = $this->remove_empty_default_values($mapped['lead_data']);
+            $checkEmailDuplicate = $this->get_bool_setting('leadlookup_duplicate_check_email_enabled', true);
+            $checkPhoneDuplicate = $this->get_bool_setting('leadlookup_duplicate_check_phone_enabled', true);
             $duplicate = $this->leadlookup_model->find_blocking_duplicate_lead_for_chatwoot(
                 $mapped['core']['email'],
-                $mapped['core']['phonenumber']
+                $mapped['core']['phonenumber'],
+                $checkEmailDuplicate,
+                $checkPhoneDuplicate
             );
 
             if (!empty($duplicate)) {
@@ -419,6 +445,15 @@ class Leadlookup extends AdminController
                     'error_message' => $message,
                     'last_synced_at' => date('Y-m-d H:i:s'),
                 ]);
+
+                $this->leadlookup_model->send_chatwoot_private_note($payload, 'skipped', [
+                    'lead_id' => $leadId,
+                    'lead_name' => isset($duplicate['name']) ? (string) $duplicate['name'] : '',
+                    'phone' => isset($duplicate['phonenumber']) ? (string) $duplicate['phonenumber'] : '',
+                    'email' => isset($duplicate['email']) ? (string) $duplicate['email'] : '',
+                    'matched_by' => $matchedBy,
+                ]);
+
                 return [
                     'ok' => true,
                     'created' => false,
@@ -442,6 +477,9 @@ class Leadlookup extends AdminController
                     'status' => 'failed',
                     'error_message' => 'Failed to create lead.',
                 ]);
+                $this->leadlookup_model->send_chatwoot_private_note($payload, 'failed', [
+                    'error_message' => 'Failed to create lead in Perfex CRM.',
+                ]);
                 return ['ok' => false, 'http_code' => 500, 'message' => 'Failed to create lead.'];
             }
 
@@ -453,11 +491,21 @@ class Leadlookup extends AdminController
                 'last_synced_at' => date('Y-m-d H:i:s'),
             ]);
 
+            $assignedName = $this->leadlookup_model->get_staff_name($leadData['assigned'] ?? '');
+
+            $this->leadlookup_model->send_chatwoot_private_note($payload, 'success', [
+                'lead_id' => $leadId,
+                'lead_name' => $leadData['name'],
+                'phone' => isset($leadData['phonenumber']) ? $leadData['phonenumber'] : '',
+                'email' => isset($leadData['email']) ? $leadData['email'] : '',
+                'assigned_name' => $assignedName,
+            ]);
+
             return [
                 'ok' => true,
                 'created' => true,
                 'skipped' => false,
-                'message' => 'Lead created successfully from Chatwoot.',
+                'message' => 'Lead created successfully from UniChat.',
                 'lead' => [
                     'id' => $leadId,
                     'name' => $leadData['name'],
@@ -473,6 +521,9 @@ class Leadlookup extends AdminController
                 'status' => 'failed',
                 'error_message' => $e->getMessage(),
             ]);
+            $this->leadlookup_model->send_chatwoot_private_note($payload, 'failed', [
+                'error_message' => $e->getMessage(),
+            ]);
             return ['ok' => false, 'http_code' => 500, 'message' => 'Sync failed: ' . $e->getMessage()];
         }
     }
@@ -485,12 +536,28 @@ class Leadlookup extends AdminController
 
         $name = $this->clean_text($sender['name'] ?? ($payload['name'] ?? ''));
         $email = $this->clean_email($sender['email'] ?? ($payload['email'] ?? ''));
-        $phone = $this->sanitize_phone($sender['phone_number'] ?? ($sender['phone'] ?? ($payload['phone'] ?? '')));
+        $phone = $this->sanitize_phone($sender['phone_number'] ?? ($sender['phone'] ?? ($payload['phone_number'] ?? ($payload['phone'] ?? ''))));
 
         $countryId = $this->resolve_country_id(
             $this->clean_text($attrs['country_code'] ?? ''),
             $this->clean_text($attrs['country'] ?? '')
         );
+
+        // Assignee to Staff Mapping
+        $assigneeMapRaw = get_option('leadlookup_assignee_staff_mapping');
+        $assigneeMap = !empty($assigneeMapRaw) ? json_decode($assigneeMapRaw, true) : [];
+        if (!is_array($assigneeMap)) {
+            $assigneeMap = [];
+        }
+
+        $unichatAssigneeId = (string) ($payload['meta']['assignee']['id'] ?? ($payload['conversation']['assignee_id'] ?? ($payload['messages'][0]['sender_id'] ?? '')));
+
+        $assignedStaffId = null;
+        if ($unichatAssigneeId !== '' && isset($assigneeMap[$unichatAssigneeId]) && !empty($assigneeMap[$unichatAssigneeId])) {
+            $assignedStaffId = (int) $assigneeMap[$unichatAssigneeId];
+        } else {
+            $assignedStaffId = $this->get_optional_int_setting('leadlookup_chatwoot_default_assigned_id');
+        }
 
         $leadData = [
             'name' => $name,
@@ -505,7 +572,7 @@ class Leadlookup extends AdminController
             'address' => '',
             'status' => $this->get_optional_int_setting('leadlookup_chatwoot_default_status_id'),
             'source' => $this->get_optional_int_setting('leadlookup_chatwoot_default_source_id'),
-            'assigned' => $this->get_optional_int_setting('leadlookup_chatwoot_default_assigned_id'),
+            'assigned' => $assignedStaffId,
             'is_public' => 0,
         ];
 
@@ -521,14 +588,14 @@ class Leadlookup extends AdminController
         $conversationUrl = $this->build_chatwoot_conversation_url($payload);
 
         $descriptionParts = [];
-        $descriptionParts[] = 'Lead synced from Chatwoot webhook with';
+        $descriptionParts[] = 'Lead created from UniChat';
         if ($conversationUrl !== '') {
             $descriptionParts[] = 'Conversation link: ' . $conversationUrl;
         }
         $leadData['description'] = implode("\n", $descriptionParts);
 
         $noteLines = [];
-        $noteLines[] = 'Chatwoot Sync';
+        $noteLines[] = 'UniChat Sync';
         $noteLines[] = 'Event: ' . ($event !== '' ? $event : 'N/A');
         $noteLines[] = 'Contact ID: ' . ($contactId !== '' ? $contactId : 'N/A');
         $noteLines[] = 'Conversation ID: ' . ($conversationId !== '' ? $conversationId : 'N/A');
@@ -690,7 +757,7 @@ class Leadlookup extends AdminController
         if (empty($allowedEntries)) {
             return [
                 'ok' => false,
-                'message' => 'No allowed domain or IP address configured for Chatwoot endpoint.',
+                'message' => 'No allowed domain or IP address configured for UniChat endpoint.',
                 'domain' => '',
                 'detected_sources' => $this->get_request_candidate_hosts($payload),
             ];
@@ -755,11 +822,11 @@ class Leadlookup extends AdminController
         $candidates = [];
 
         // Only use the actual incoming request metadata for domain/IP validation.
-        // IMPORTANT: Chatwoot payload additional_attributes.referer is the visitor page
-        // referrer, not the Chatwoot webhook source, so it is intentionally ignored here.
+        // IMPORTANT: UniChat payload additional_attributes.referer is the visitor page
+        // referrer, not the UniChat webhook source, so it is intentionally ignored here.
         // Host/X-Forwarded-Host are also ignored because they usually represent the CRM
         // destination host, not the sender.
-        foreach (['Origin', 'Referer', 'X-Chatwoot-Source-Domain'] as $header) {
+        foreach (['Origin', 'Referer', 'X-UniChat-Source-Domain', 'X-Chatwoot-Source-Domain'] as $header) {
             $value = $this->get_header_value($header);
             if ($value !== '') {
                 $candidates[] = $value;
@@ -767,7 +834,7 @@ class Leadlookup extends AdminController
         }
 
         // IP candidates from server/proxy metadata. Allow admins to whitelist the
-        // Chatwoot server IP, reverse proxy IP, or Cloudflare real visitor IP.
+        // UniChat server IP, reverse proxy IP, or Cloudflare real visitor IP.
         foreach (['REMOTE_ADDR', 'HTTP_X_REAL_IP', 'HTTP_CF_CONNECTING_IP'] as $key) {
             if (!empty($_SERVER[$key])) {
                 $candidates[] = (string) $_SERVER[$key];
@@ -954,6 +1021,12 @@ class Leadlookup extends AdminController
         return $this->truthy($value);
     }
 
+    private function get_retention_days()
+    {
+        $days = $this->get_int_setting('leadlookup_log_retention_days', 30);
+        return $days > 0 ? $days : 30;
+    }
+
     private function export_sync_logs_csv(array $filters, $filename, $reportType = 'lead')
     {
         $allowed = $reportType === 'phone' ? $this->can_view_phone_report() : ($this->can_view_report() || $this->is_admin_allowed());
@@ -964,7 +1037,7 @@ class Leadlookup extends AdminController
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['ID', 'Time', 'Status', 'Chatwoot Contact', 'Conversation', 'Lead', 'Attempts', 'Matched By', 'Error']);
+        fputcsv($out, ['ID', 'Time', 'Status', 'UniChat Contact', 'Conversation', 'Lead', 'Attempts', 'Matched By', 'Error']);
         foreach ($rows as $row) {
             fputcsv($out, [
                 $row['id'] ?? '',

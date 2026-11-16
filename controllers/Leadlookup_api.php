@@ -49,14 +49,18 @@ class Leadlookup_api extends App_Controller
     /** POST /leadlookup/create_from_chatwoot */
     public function create_from_chatwoot()
     {
-        if (strtoupper((string) $this->input->method(true)) !== 'POST') {
+        $rawBody = (string) $this->input->raw_input_stream;
+        $method = strtoupper((string) $this->input->method(true));
+
+        if ($method !== 'POST') {
+            $this->leadlookup_model->create_sync_log(['error' => 'HTTP method ' . $method . ' used.'], 'failed', 'Only POST requests are allowed. Received ' . $method . ' request.', $rawBody);
             return $this->json_error(405, 'Only POST requests are allowed.');
         }
 
-        $rawBody = (string) $this->input->raw_input_stream;
         $payload = json_decode($rawBody, true);
         if (!is_array($payload)) {
-            return $this->json_error(400, 'Invalid JSON payload.');
+            $this->leadlookup_model->create_sync_log(['raw_body' => $rawBody], 'failed', 'Invalid or empty JSON payload received.', $rawBody);
+            return $this->json_error(400, 'Invalid JSON payload. Payload must be valid JSON in application/json format.');
         }
 
         // Create the sync log before domain/IP validation so every valid JSON hit
@@ -107,13 +111,20 @@ class Leadlookup_api extends App_Controller
                     'status' => 'failed',
                     'error_message' => $validation['message'],
                 ]);
+                $this->leadlookup_model->send_chatwoot_private_note($payload, 'failed', [
+                    'error_message' => $validation['message'],
+                ]);
                 return ['ok' => false, 'http_code' => 422, 'message' => $validation['message']];
             }
 
             $leadData = $this->remove_empty_default_values($mapped['lead_data']);
+            $checkEmailDuplicate = $this->get_bool_setting('leadlookup_duplicate_check_email_enabled', true);
+            $checkPhoneDuplicate = $this->get_bool_setting('leadlookup_duplicate_check_phone_enabled', true);
             $duplicate = $this->leadlookup_model->find_blocking_duplicate_lead_for_chatwoot(
                 $mapped['core']['email'],
-                $mapped['core']['phonenumber']
+                $mapped['core']['phonenumber'],
+                $checkEmailDuplicate,
+                $checkPhoneDuplicate
             );
 
             if (!empty($duplicate)) {
@@ -127,6 +138,15 @@ class Leadlookup_api extends App_Controller
                     'error_message' => $message,
                     'last_synced_at' => date('Y-m-d H:i:s'),
                 ]);
+
+                $this->leadlookup_model->send_chatwoot_private_note($payload, 'skipped', [
+                    'lead_id' => $leadId,
+                    'lead_name' => isset($duplicate['name']) ? (string) $duplicate['name'] : '',
+                    'phone' => isset($duplicate['phonenumber']) ? (string) $duplicate['phonenumber'] : '',
+                    'email' => isset($duplicate['email']) ? (string) $duplicate['email'] : '',
+                    'matched_by' => $matchedBy,
+                ]);
+
                 return [
                     'ok' => true,
                     'created' => false,
@@ -150,6 +170,9 @@ class Leadlookup_api extends App_Controller
                     'status' => 'failed',
                     'error_message' => 'Failed to create lead.',
                 ]);
+                $this->leadlookup_model->send_chatwoot_private_note($payload, 'failed', [
+                    'error_message' => 'Failed to create lead in Perfex CRM.',
+                ]);
                 return ['ok' => false, 'http_code' => 500, 'message' => 'Failed to create lead.'];
             }
 
@@ -161,11 +184,21 @@ class Leadlookup_api extends App_Controller
                 'last_synced_at' => date('Y-m-d H:i:s'),
             ]);
 
+            $assignedName = $this->leadlookup_model->get_staff_name($leadData['assigned'] ?? '');
+
+            $this->leadlookup_model->send_chatwoot_private_note($payload, 'success', [
+                'lead_id' => $leadId,
+                'lead_name' => $leadData['name'],
+                'phone' => isset($leadData['phonenumber']) ? $leadData['phonenumber'] : '',
+                'email' => isset($leadData['email']) ? $leadData['email'] : '',
+                'assigned_name' => $assignedName,
+            ]);
+
             return [
                 'ok' => true,
                 'created' => true,
                 'skipped' => false,
-                'message' => 'Lead created successfully from Chatwoot.',
+                'message' => 'Lead created successfully from UniChat.',
                 'lead' => [
                     'id' => $leadId,
                     'name' => $leadData['name'],
@@ -181,6 +214,9 @@ class Leadlookup_api extends App_Controller
                 'status' => 'failed',
                 'error_message' => $e->getMessage(),
             ]);
+            $this->leadlookup_model->send_chatwoot_private_note($payload, 'failed', [
+                'error_message' => $e->getMessage(),
+            ]);
             return ['ok' => false, 'http_code' => 500, 'message' => 'Sync failed: ' . $e->getMessage()];
         }
     }
@@ -193,12 +229,28 @@ class Leadlookup_api extends App_Controller
 
         $name = $this->clean_text($sender['name'] ?? ($payload['name'] ?? ''));
         $email = $this->clean_email($sender['email'] ?? ($payload['email'] ?? ''));
-        $phone = $this->sanitize_phone($sender['phone_number'] ?? ($sender['phone'] ?? ($payload['phone'] ?? '')));
+        $phone = $this->sanitize_phone($sender['phone_number'] ?? ($sender['phone'] ?? ($payload['phone_number'] ?? ($payload['phone'] ?? ''))));
 
         $countryId = $this->resolve_country_id(
             $this->clean_text($attrs['country_code'] ?? ''),
             $this->clean_text($attrs['country'] ?? '')
         );
+
+        // Assignee to Staff Mapping
+        $assigneeMapRaw = get_option('leadlookup_assignee_staff_mapping');
+        $assigneeMap = !empty($assigneeMapRaw) ? json_decode($assigneeMapRaw, true) : [];
+        if (!is_array($assigneeMap)) {
+            $assigneeMap = [];
+        }
+
+        $unichatAssigneeId = (string) ($payload['meta']['assignee']['id'] ?? ($payload['conversation']['assignee_id'] ?? ($payload['messages'][0]['sender_id'] ?? '')));
+
+        $assignedStaffId = null;
+        if ($unichatAssigneeId !== '' && isset($assigneeMap[$unichatAssigneeId]) && !empty($assigneeMap[$unichatAssigneeId])) {
+            $assignedStaffId = (int) $assigneeMap[$unichatAssigneeId];
+        } else {
+            $assignedStaffId = $this->get_optional_int_setting('leadlookup_chatwoot_default_assigned_id');
+        }
 
         $leadData = [
             'name' => $name,
@@ -213,7 +265,7 @@ class Leadlookup_api extends App_Controller
             'address' => '',
             'status' => $this->get_optional_int_setting('leadlookup_chatwoot_default_status_id'),
             'source' => $this->get_optional_int_setting('leadlookup_chatwoot_default_source_id'),
-            'assigned' => $this->get_optional_int_setting('leadlookup_chatwoot_default_assigned_id'),
+            'assigned' => $assignedStaffId,
             'is_public' => 0,
         ];
 
@@ -229,14 +281,14 @@ class Leadlookup_api extends App_Controller
         $conversationUrl = $this->build_chatwoot_conversation_url($payload);
 
         $descriptionParts = [];
-        $descriptionParts[] = 'Lead synced from Chatwoot webhook with';
+        $descriptionParts[] = 'Lead created from UniChat';
         if ($conversationUrl !== '') {
             $descriptionParts[] = 'Conversation link: ' . $conversationUrl;
         }
         $leadData['description'] = implode("\n", $descriptionParts);
 
         $noteLines = [];
-        $noteLines[] = 'Chatwoot Sync';
+        $noteLines[] = 'UniChat Sync';
         $noteLines[] = 'Event: ' . ($event !== '' ? $event : 'N/A');
         $noteLines[] = 'Contact ID: ' . ($contactId !== '' ? $contactId : 'N/A');
         $noteLines[] = 'Conversation ID: ' . ($conversationId !== '' ? $conversationId : 'N/A');
@@ -398,7 +450,7 @@ class Leadlookup_api extends App_Controller
         if (empty($allowedEntries)) {
             return [
                 'ok' => false,
-                'message' => 'No allowed domain or IP address configured for Chatwoot endpoint.',
+                'message' => 'No allowed domain or IP address configured for UniChat endpoint.',
                 'domain' => '',
                 'detected_sources' => $this->get_request_candidate_hosts($payload),
             ];
@@ -476,11 +528,11 @@ class Leadlookup_api extends App_Controller
         $candidates = [];
 
         // Only use the actual incoming request metadata for domain/IP validation.
-        // IMPORTANT: Chatwoot payload additional_attributes.referer is the visitor page
-        // referrer, not the Chatwoot webhook source, so it is intentionally ignored here.
+        // IMPORTANT: UniChat payload additional_attributes.referer is the visitor page
+        // referrer, not the UniChat webhook source, so it is intentionally ignored here.
         // Host/X-Forwarded-Host are also ignored because they usually represent the CRM
         // destination host, not the sender.
-        foreach (['Origin', 'Referer', 'X-Chatwoot-Source-Domain'] as $header) {
+        foreach (['Origin', 'Referer', 'X-UniChat-Source-Domain', 'X-Chatwoot-Source-Domain'] as $header) {
             $value = $this->get_header_value($header);
             if ($value !== '') {
                 $candidates[] = $value;
@@ -488,7 +540,7 @@ class Leadlookup_api extends App_Controller
         }
 
         // IP candidates from server/proxy metadata. Allow admins to whitelist the
-        // Chatwoot server IP, reverse proxy IP, or Cloudflare real visitor IP.
+        // UniChat server IP, reverse proxy IP, or Cloudflare real visitor IP.
         foreach (['REMOTE_ADDR', 'HTTP_X_REAL_IP', 'HTTP_CF_CONNECTING_IP'] as $key) {
             if (!empty($_SERVER[$key])) {
                 $candidates[] = (string) $_SERVER[$key];
@@ -575,8 +627,8 @@ class Leadlookup_api extends App_Controller
             return hash_equals($allowed, $source);
         }
 
-        // Important for self-hosted Chatwoot: webhooks are server-to-server requests.
-        // Chatwoot usually does not send Origin/Referer, so adding only
+        // Important for self-hosted UniChat: webhooks are server-to-server requests.
+        // UniChat usually does not send Origin/Referer, so adding only
         // app.example.com to settings would not match unless we resolve that
         // allowed domain to its server IP and compare it with REMOTE_ADDR / proxy IPs.
         if ($sourceIsIp && !$allowedIsIp) {
@@ -738,11 +790,13 @@ class Leadlookup_api extends App_Controller
 
     private function check_api_key()
     {
-        // Phone lookup API key is intentionally static, same as the original module.
-        // Set it only in modules/leadlookup/config/leadlookup.php.
-        // It is not stored in Perfex options and it is not editable from the UI.
+        // Phone lookup API key is editable from Setup -> Lead Lookup.
+        // Static config value remains as a fallback for backward compatibility.
         $cfg = (array) $this->config->item('leadlookup');
-        $expected = isset($cfg['api_key']) ? trim((string) $cfg['api_key']) : '';
+        $expected = trim((string) get_option('leadlookup_api_key'));
+        if ($expected === '' || $expected === 'YOUR_STATIC_SECRET_KEY_HERE') {
+            $expected = isset($cfg['api_key']) ? trim((string) $cfg['api_key']) : '';
+        }
 
         $provided = trim((string) $this->input->get('apikey', true));
         if ($provided === '') {

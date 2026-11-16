@@ -7,30 +7,35 @@
                 <div class="panel_s">
                     <div class="panel-body">
                         <div class="clearfix">
-                            <h4 class="tw-font-semibold tw-mt-0 pull-left">Lead Lookup Debug</h4>
+                            <h4 class="tw-font-semibold tw-mt-0 pull-left">
+                                <i class="fa-regular fa-circle-question pull-left tw-mt-0.5 tw-mr-1" data-toggle="tooltip" data-title="Administrator-only debug tool to verify endpoints, allowed domain/IP match, and server request headers."></i>
+                                Lead Creator & Lookup Debug
+                            </h4>
                             <a class="btn btn-default pull-right" href="<?php echo admin_url('leadlookup/settings'); ?>">Back to Settings</a>
                         </div>
-                        <hr />
+                        <hr class="hr-panel-heading" />
 
                         <div class="alert alert-info">
                             This page is administrator-only. It does not show API keys or secrets. Webhook lead creation is currently protected by allowed domain/IP validation only.
                         </div>
 
-                        <h4>Endpoints</h4>
+                        <h4 class="bold">Endpoints</h4>
                         <table class="table table-bordered">
                             <tbody>
-                                <tr><th style="width:220px;">Chatwoot webhook endpoint</th><td><code><?php echo e($endpoint); ?></code></td></tr>
+                                <tr><th style="width:220px;">UniChat webhook endpoint</th><td><code><?php echo e($endpoint); ?></code></td></tr>
                                 <tr><th>Phone lookup endpoint</th><td><code><?php echo e($lookup_endpoint); ?></code></td></tr>
                                 <tr><th>Module version</th><td><?php echo e($module_version); ?></td></tr>
                                 <tr><th>Sync log table</th><td><?php echo !empty($log_table_exists) ? '<span class="label label-success">Exists</span>' : '<span class="label label-danger">Missing</span>'; ?></td></tr>
                             </tbody>
                         </table>
 
-                        <h4>Allowed Domain/IP Entries</h4>
-                        <p class="text-muted">Raw setting accepts comma-separated values or one item per line.</p>
+                        <h4 class="bold">
+                            <i class="fa-regular fa-circle-question pull-left tw-mt-0.5 tw-mr-1" data-toggle="tooltip" data-title="Raw setting accepts comma-separated values or one item per line."></i>
+                            Allowed Domain/IP Entries
+                        </h4>
                         <pre><?php echo e($allowed_raw); ?></pre>
                         <?php if (empty($allowed_entries)) { ?>
-                            <div class="alert alert-warning">No allowed domain/IP is configured. Chatwoot webhook requests will be rejected.</div>
+                            <div class="alert alert-warning">No allowed domain/IP is configured. UniChat webhook requests will be rejected.</div>
                         <?php } else { ?>
                             <table class="table table-condensed table-bordered">
                                 <thead><tr><th>#</th><th>Normalized entry</th><th>Type</th></tr></thead>
@@ -46,7 +51,10 @@
                             </table>
                         <?php } ?>
 
-                        <h4>Test Domain/IP Match</h4>
+                        <h4 class="bold">
+                            <i class="fa-regular fa-circle-question pull-left tw-mt-0.5 tw-mr-1" data-toggle="tooltip" data-title="Test if a domain, URL, or IP address matches your allowed domain/IP list."></i>
+                            Test Domain/IP Match
+                        </h4>
                         <?php echo form_open(admin_url('leadlookup/debug'), ['method' => 'get']); ?>
                             <div class="input-group">
                                 <input type="text" name="source" value="<?php echo e($test_source); ?>" class="form-control" placeholder="example.com, https://example.com/page, or 203.190.34.162">
@@ -61,7 +69,10 @@
                             </div>
                         <?php } ?>
 
-                        <h4>Server Request Context</h4>
+                        <h4 class="bold">
+                            <i class="fa-regular fa-circle-question pull-left tw-mt-0.5 tw-mr-1" data-toggle="tooltip" data-title="Shows current server request headers and IP metadata evaluated during validation."></i>
+                            Server Request Context
+                        </h4>
                         <table class="table table-condensed table-bordered">
                             <tbody>
                                 <?php foreach ($server as $key => $value) { ?>
@@ -70,7 +81,7 @@
                             </tbody>
                         </table>
 
-</div>
+                    </div>
                 </div>
             </div>
         </div>

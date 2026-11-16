@@ -51,24 +51,33 @@ class Leadlookup_model extends App_Model
         return $out;
     }
 
-    public function find_blocking_duplicate_lead_for_chatwoot($email, $phone)
+    public function find_blocking_duplicate_lead_for_chatwoot($email, $phone, $checkEmail = true, $checkPhone = true)
     {
         $email = trim((string) $email);
         $phone = trim((string) $phone);
-        if ($email === '' && $phone === '') {
+        $checkEmail = (bool) $checkEmail;
+        $checkPhone = (bool) $checkPhone;
+
+        if (!$checkEmail) {
+            $email = '';
+        }
+        if (!$checkPhone) {
+            $phone = '';
+        }
+        if (($email === '' && $phone === '') || (!$checkEmail && !$checkPhone)) {
             return [];
         }
 
-        $phoneCandidates = $this->phone_lookup_candidates($phone);
+        $phoneCandidates = $checkPhone ? $this->phone_lookup_candidates($phone) : [];
 
         $this->db->select('l.*, s.name as status_name');
         $this->db->from(db_prefix() . 'leads l');
         $this->db->join(db_prefix() . 'leads_status s', 's.id = l.status', 'left');
         $this->db->group_start();
-        if ($email !== '') {
+        if ($checkEmail && $email !== '') {
             $this->db->or_where('l.email', $email);
         }
-        if (!empty($phoneCandidates)) {
+        if ($checkPhone && !empty($phoneCandidates)) {
             $this->db->or_where_in('l.phonenumber', $phoneCandidates);
         }
         $this->db->group_end();
@@ -77,7 +86,8 @@ class Leadlookup_model extends App_Model
 
         foreach ($rows as $row) {
             if (!$this->lead_status_is_customer($row)) {
-                $row['matched_by'] = ($email !== '' && strtolower((string) ($row['email'] ?? '')) === strtolower($email)) ? 'email' : 'phone';
+                $emailMatched = $checkEmail && $email !== '' && strtolower((string) ($row['email'] ?? '')) === strtolower($email);
+                $row['matched_by'] = $emailMatched ? 'email' : 'phone';
                 return $row;
             }
         }
@@ -141,6 +151,8 @@ class Leadlookup_model extends App_Model
             return 0;
         }
 
+        $this->purge_old_sync_logs();
+
         $summary = $this->payload_summary($payload);
         $savePayload = function_exists('get_option') ? (string) get_option('leadlookup_chatwoot_save_payload') : '1';
         $payloadText = in_array(strtolower($savePayload), ['1','true','yes','on'], true)
@@ -174,6 +186,8 @@ class Leadlookup_model extends App_Model
             log_message('error', 'Leadlookup: phone lookup log table is missing and could not be created.');
             return 0;
         }
+
+        $this->purge_old_sync_logs();
 
         $summary = [
             'phone' => (string) $phone,
@@ -229,6 +243,51 @@ class Leadlookup_model extends App_Model
         return $this->db->get(db_prefix() . 'leadlookup_sync_logs')->result_array();
     }
 
+    private function parse_date_to_sql($date)
+    {
+        $date = trim((string) $date);
+        if ($date === '') {
+            return '';
+        }
+        if (function_exists('to_sql_date')) {
+            $sqlDate = to_sql_date($date);
+            if (!empty($sqlDate)) {
+                return $sqlDate;
+            }
+        }
+        if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $date)) {
+            return $date;
+        }
+        $ts = strtotime($date);
+        if ($ts !== false && $ts > 0) {
+            return date('Y-m-d', $ts);
+        }
+        return $date;
+    }
+
+    public function get_sync_logs_summary($logType = 'lead_create', array $filters = [])
+    {
+        if (!$this->ensure_sync_logs_table()) return ['total' => 0, 'success' => 0, 'skipped' => 0, 'failed' => 0, 'pending' => 0];
+
+        $this->db->select('status, COUNT(*) as total');
+        $summaryFilters = array_merge($filters, ['log_type' => $logType]);
+        unset($summaryFilters['status']);
+        $this->apply_sync_log_filters($summaryFilters);
+        $this->db->group_by('status');
+        $rows = $this->db->get(db_prefix() . 'leadlookup_sync_logs')->result_array();
+
+        $summary = ['total' => 0, 'success' => 0, 'skipped' => 0, 'failed' => 0, 'pending' => 0];
+        foreach ($rows as $r) {
+            $st = (string) $r['status'];
+            $cnt = (int) $r['total'];
+            $summary['total'] += $cnt;
+            if (array_key_exists($st, $summary)) {
+                $summary[$st] = $cnt;
+            }
+        }
+        return $summary;
+    }
+
 
     public function get_sync_logs_filtered(array $filters = [], $limit = 25, $offset = 0)
     {
@@ -272,10 +331,16 @@ class Leadlookup_model extends App_Model
             $this->db->where('status', $status);
         }
         if ($dateFrom !== '') {
-            $this->db->where('created_at >=', $dateFrom . ' 00:00:00');
+            $sqlDateFrom = $this->parse_date_to_sql($dateFrom);
+            if ($sqlDateFrom !== '') {
+                $this->db->where('created_at >=', $sqlDateFrom . ' 00:00:00');
+            }
         }
         if ($dateTo !== '') {
-            $this->db->where('created_at <=', $dateTo . ' 23:59:59');
+            $sqlDateTo = $this->parse_date_to_sql($dateTo);
+            if ($sqlDateTo !== '') {
+                $this->db->where('created_at <=', $sqlDateTo . ' 23:59:59');
+            }
         }
         if ($search !== '') {
             $this->db->group_start();
@@ -313,6 +378,41 @@ class Leadlookup_model extends App_Model
         $this->db->where_in('id', $ids);
         $this->db->delete(db_prefix() . 'leadlookup_sync_logs');
         return (int) $this->db->affected_rows();
+    }
+
+    public function purge_old_sync_logs($days = null, $logType = null)
+    {
+        if (!$this->ensure_sync_logs_table()) return 0;
+        if ($days === null || (int) $days <= 0) {
+            $retention = function_exists('get_option') ? get_option('leadlookup_log_retention_days') : '30';
+            $days = (!empty($retention) && (int) $retention > 0) ? (int) $retention : 30;
+        }
+        $days = max(1, (int) $days);
+        $cutoff = date('Y-m-d H:i:s', strtotime("-{$days} days"));
+        if ($logType !== null && $logType !== '') {
+            if ($logType === 'lead_create') {
+                $this->db->group_start();
+                $this->db->where('log_type', 'lead_create');
+                $this->db->or_where('log_type IS NULL', null, false);
+                $this->db->or_where('log_type', '');
+                $this->db->group_end();
+            } else {
+                $this->db->where('log_type', $logType);
+            }
+        }
+        $this->db->where('created_at <', $cutoff);
+        $this->db->delete(db_prefix() . 'leadlookup_sync_logs');
+        return (int) $this->db->affected_rows();
+    }
+
+    public function purge_old_phone_lookup_logs($days = null)
+    {
+        return $this->purge_old_sync_logs($days, 'phone_lookup');
+    }
+
+    public function purge_old_lead_create_logs($days = null)
+    {
+        return $this->purge_old_sync_logs($days, 'lead_create');
     }
 
     public function find_lead_id_by_chatwoot_contact_id($contactId)
@@ -436,4 +536,168 @@ class Leadlookup_model extends App_Model
         }
         return $byLead;
     }
+
+    public function get_status_list()
+    {
+        if (!$this->db->table_exists(db_prefix() . 'leads_status')) {
+            return [];
+        }
+        $this->db->select('id, name');
+        $this->db->from(db_prefix() . 'leads_status');
+        $this->db->order_by('statusorder', 'ASC');
+        return $this->db->get()->result_array();
+    }
+
+    public function get_source_list()
+    {
+        if (!$this->db->table_exists(db_prefix() . 'leads_sources')) {
+            return [];
+        }
+        $this->db->select('id, name');
+        $this->db->from(db_prefix() . 'leads_sources');
+        $this->db->order_by('name', 'ASC');
+        return $this->db->get()->result_array();
+    }
+
+    public function get_staff_list()
+    {
+        $this->db->select('staffid, firstname, lastname, email');
+        $this->db->from(db_prefix() . 'staff');
+        $this->db->where('active', 1);
+        $this->db->order_by('firstname', 'ASC');
+        return $this->db->get()->result_array();
+    }
+
+    public function get_staff_name($staffId)
+    {
+        if (empty($staffId)) {
+            return '';
+        }
+        $row = $this->db->select('firstname, lastname')->from(db_prefix() . 'staff')->where('staffid', (int) $staffId)->get()->row();
+        return $row ? trim($row->firstname . ' ' . $row->lastname) : '';
+    }
+
+    public function send_chatwoot_private_note(array $payload, $status, array $details = [])
+    {
+        $enabled = get_option('leadlookup_chatwoot_private_note_enabled');
+        if ($enabled !== '1') {
+            return false;
+        }
+
+        $apiToken = trim((string) get_option('leadlookup_chatwoot_api_token'));
+        if ($apiToken === '') {
+            return false;
+        }
+
+        $baseUrl = trim((string) get_option('leadlookup_chatwoot_base_url'));
+        if ($baseUrl === '') {
+            return false;
+        }
+        $baseUrl = rtrim($baseUrl, '/');
+
+        $accountId = (string) ($payload['account']['id'] ?? get_option('leadlookup_chatwoot_account_id'));
+        $conversationId = (string) ($payload['id'] ?? ($payload['conversation']['id'] ?? ($payload['messages'][0]['conversation_id'] ?? '')));
+
+        if ($accountId === '' || $conversationId === '') {
+            return false;
+        }
+
+        $apiUrl = $baseUrl . '/api/v1/accounts/' . $accountId . '/conversations/' . $conversationId . '/messages?api_access_token=' . urlencode($apiToken);
+
+        $leadId = isset($details['lead_id']) ? (int) $details['lead_id'] : 0;
+        $leadName = $details['lead_name'] ?? ($payload['meta']['sender']['name'] ?? 'Lead');
+        $phone = $details['phone'] ?? ($payload['meta']['sender']['phone_number'] ?? '');
+        $email = $details['email'] ?? ($payload['meta']['sender']['email'] ?? '');
+        $matchedBy = $details['matched_by'] ?? '';
+        $errorMessage = $details['error_message'] ?? '';
+        $assignedName = $details['assigned_name'] ?? '';
+
+        // Extract UniChat Agent / Assignee Name & ID
+        $agentName = trim((string) (
+            $payload['meta']['assignee']['name'] 
+            ?? ($payload['meta']['assignee']['available_name'] 
+            ?? ($payload['messages'][0]['sender']['name'] 
+            ?? ($payload['messages'][0]['sender']['available_name'] ?? '')))
+        ));
+
+        $agentId = (string) (
+            $payload['meta']['assignee']['id'] 
+            ?? ($payload['conversation']['assignee_id'] 
+            ?? ($payload['messages'][0]['sender_id'] ?? ''))
+        );
+
+        $agentDisplay = '';
+        if ($agentName !== '' && $agentId !== '') {
+            $agentDisplay = $agentName . ' (ID: #' . $agentId . ')';
+        } elseif ($agentName !== '') {
+            $agentDisplay = $agentName;
+        } elseif ($agentId !== '') {
+            $agentDisplay = 'ID: #' . $agentId;
+        }
+
+        $leadUrl = $leadId > 0 ? admin_url('leads/index/' . $leadId) : '';
+
+        $lines = [];
+        if ($status === 'success') {
+            $lines[] = "✅ Lead Create Status: Success";
+            if ($assignedName !== '') {
+                $lines[] = "• Assigned CRM Staff: " . $assignedName;
+            }
+            if ($leadUrl !== '') {
+                $lines[] = "• View Lead: " . $leadUrl;
+            }
+            $lines[] = "";
+            $lines[] = "Please add the remaining data, such as tags, service, assignee, and other relevant information, using the link above.";
+        } elseif ($status === 'skipped') {
+            $lines[] = "🔴 Lead Create Status: Failed";
+            $matchedText = $matchedBy !== '' ? ($matchedBy === 'email_or_phone' ? 'email/phone' : $matchedBy) : 'email/phone';
+            $msg = "Existing Lead Found";
+            if ($leadId > 0) {
+                $msg .= " (ID: #" . $leadId . ")";
+            }
+            $msg .= ". Matched by " . $matchedText;
+            $lines[] = "• Message: " . $msg;
+            if ($leadUrl !== '') {
+                $lines[] = "• View Lead: " . $leadUrl;
+            }
+            $lines[] = "";
+            $lines[] = "Please check the lead using the link above. If necessary, update it or create the lead manually in the CRM.";
+        } elseif ($status === 'failed') {
+            $lines[] = "🔴 Lead Create Status: Failed";
+            if ($errorMessage !== '') {
+                $lines[] = "• Message: " . $errorMessage;
+            }
+        }
+
+        if (empty($lines)) {
+            return false;
+        }
+
+        $content = implode("\n", $lines);
+
+        $postData = json_encode([
+            'content' => $content,
+            'message_type' => 'outgoing',
+            'private' => true,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $apiUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'api_access_token: ' . $apiToken,
+            'api-access-token: ' . $apiToken,
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return $httpCode >= 200 && $httpCode < 300;
+    }
 }
+

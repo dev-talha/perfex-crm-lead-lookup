@@ -2,9 +2,9 @@
 defined('BASEPATH') or exit('No direct script access allowed');
 
 /*
-Module Name: Lead Lookup
-Description: Internal API to lookup leads by phone and create leads from Chatwoot webhooks with domain/IP validation and role-based lead create reports.
-Version: 1.3.6
+Module Name: Lead Creator & Lookup
+Description: Internal API to lookup leads by phone and create leads from UniChat webhooks with domain/IP validation and role-based lead create reports under Utilities.
+Version: 1.4.0
 Author: Internal
 */
 
@@ -18,14 +18,18 @@ function leadlookup_activation_hook()
     $cfg = (array) $CI->config->item('leadlookup');
 
     $defaults = [
+        'leadlookup_api_key'                       => (string) ($cfg['api_key'] ?? ''),
         'leadlookup_chatwoot_allowed_domains'      => (string) ($cfg['chatwoot_allowed_domains'] ?? ''),
         'leadlookup_domain_ip_validation_enabled' => (string) ($cfg['domain_ip_validation_enabled'] ?? '1'),
+        'leadlookup_log_retention_days'            => '30',
         'leadlookup_chatwoot_default_status_id'    => '',
         'leadlookup_chatwoot_default_source_id'    => '',
         'leadlookup_chatwoot_default_assigned_id'  => '',
         'leadlookup_chatwoot_base_url'             => (string) ($cfg['chatwoot_base_url'] ?? ''),
         'leadlookup_chatwoot_account_id'           => (string) ($cfg['chatwoot_account_id'] ?? ''),
         'leadlookup_chatwoot_save_payload'         => '1',
+        'leadlookup_duplicate_check_email_enabled' => '1',
+        'leadlookup_duplicate_check_phone_enabled' => '1',
     ];
 
     foreach ($defaults as $name => $value) {
@@ -123,7 +127,7 @@ function leadlookup_admin_init()
                 'view'   => 'View Lead Create Report',
                 'delete' => 'Delete Lead Create Report Logs',
             ],
-        ], 'Lead Lookup Reports');
+        ], 'Lead Creator & Lookup Reports');
     }
 
 
@@ -133,22 +137,22 @@ function leadlookup_admin_init()
                 'view'   => 'View Phone Lookup Report',
                 'delete' => 'Delete Phone Lookup Report Logs',
             ],
-        ], 'Lead Lookup Phone Reports');
+        ], 'Lead Creator & Lookup Phone Reports');
     }
 
     // Settings UI must be administrator-only.
     if (function_exists('is_admin') && is_admin() && isset($CI->app_menu)) {
         $CI->app_menu->add_setup_menu_item('leadlookup-chatwoot-sync', [
             'slug'     => 'leadlookup-chatwoot-sync',
-            'name'     => 'Lead Lookup',
+            'name'     => 'Lead Creator & Lookup',
             'href'     => admin_url('leadlookup/settings'),
             'position' => 66,
         ]);
     }
 
-    // Role-based report page for non-admin staff with permission.
+    // Role-based lead create report page under Utilities menu for permitted staff.
     if (isset($CI->app_menu) && (is_admin() || has_permission('leadlookup_reports', '', 'view'))) {
-        $CI->app_menu->add_sidebar_children_item('reports', [
+        $CI->app_menu->add_sidebar_children_item('utilities', [
             'slug'     => 'leadlookup-create-report',
             'name'     => 'Lead Create Report',
             'href'     => admin_url('leadlookup/report'),
@@ -156,16 +160,23 @@ function leadlookup_admin_init()
         ]);
     }
 
+    // Role-based phone lookup report page under Utilities menu for permitted staff.
     if (isset($CI->app_menu) && (is_admin() || has_permission('leadlookup_phone_reports', '', 'view'))) {
-        $CI->app_menu->add_sidebar_children_item('reports', [
+        $CI->app_menu->add_sidebar_children_item('utilities', [
             'slug'     => 'leadlookup-phone-report',
             'name'     => 'Phone Lookup Report',
             'href'     => admin_url('leadlookup/phone_report'),
             'position' => 67,
         ]);
     }
+}
 
-    // Do not register this as a core Settings tab. The settings/log screen uses
-    // a dedicated AdminController route so Perfex admin CSS/JS assets are
-    // initialized correctly on all supported versions.
+hooks()->add_action('after_cron_run', 'leadlookup_cron_purge_logs');
+function leadlookup_cron_purge_logs()
+{
+    $CI = &get_instance();
+    $CI->load->model('leadlookup/leadlookup_model');
+    if (isset($CI->leadlookup_model)) {
+        $CI->leadlookup_model->purge_old_sync_logs();
+    }
 }
