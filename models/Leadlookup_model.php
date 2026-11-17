@@ -577,6 +577,49 @@ class Leadlookup_model extends App_Model
         return $row ? trim($row->firstname . ' ' . $row->lastname) : '';
     }
 
+    public function set_lead_creator_and_activity($leadId, $assignedStaffId = 0, $unichatAgentName = '')
+    {
+        $leadId = (int) $leadId;
+        if ($leadId <= 0) {
+            return false;
+        }
+
+        $assignedStaffId = (int) $assignedStaffId;
+        $staffName = $assignedStaffId > 0 ? $this->get_staff_name($assignedStaffId) : '';
+        $unichatAgentName = trim((string) $unichatAgentName);
+
+        $creatorName = $staffName !== '' ? $staffName : ($unichatAgentName !== '' ? 'UniChat (' . $unichatAgentName . ')' : 'UniChat');
+
+        // 1. Update addedfrom in tblleads if mapped staff exists
+        if ($assignedStaffId > 0) {
+            $this->db->where('id', $leadId)->update(db_prefix() . 'leads', [
+                'addedfrom' => $assignedStaffId,
+            ]);
+        }
+
+        // 2. Update 'not_lead_activity_created' in tbllead_activity_log with creator staff info
+        $this->db->where('leadid', $leadId)
+            ->where('description', 'not_lead_activity_created')
+            ->update(db_prefix() . 'lead_activity_log', [
+                'staffid'   => $assignedStaffId,
+                'full_name' => $creatorName,
+            ]);
+
+        // 3. Update 'not_lead_activity_assigned_to' in tbllead_activity_log so it displays proper assigner
+        if ($assignedStaffId > 0 && $staffName !== '') {
+            $staffProfileLink = '<a href="' . admin_url('profile/' . $assignedStaffId) . '" target="_blank">' . html_escape($staffName) . '</a>';
+            $this->db->where('leadid', $leadId)
+                ->where('description', 'not_lead_activity_assigned_to')
+                ->update(db_prefix() . 'lead_activity_log', [
+                    'staffid'         => $assignedStaffId,
+                    'full_name'       => $staffName,
+                    'additional_data' => serialize(['UniChat', $staffProfileLink]),
+                ]);
+        }
+
+        return true;
+    }
+
     public function send_chatwoot_private_note(array $payload, $status, array $details = [])
     {
         $enabled = get_option('leadlookup_chatwoot_private_note_enabled');

@@ -206,7 +206,7 @@ class Leadlookup extends AdminController
         }
 
         $data['title'] = 'Lead Lookup Debug';
-        $data['module_version'] = '1.4.1';
+        $data['module_version'] = '1.4.2';
         $data['endpoint'] = site_url('leadlookup/create_from_chatwoot');
         $data['lookup_endpoint'] = site_url('leadlookup/by_phone');
         $data['allowed_raw'] = get_option('leadlookup_chatwoot_allowed_domains');
@@ -502,6 +502,16 @@ class Leadlookup extends AdminController
                 ]);
                 return ['ok' => false, 'http_code' => 500, 'message' => 'Failed to create lead.'];
             }
+
+            // Set lead creator attribution & fix activity log
+            $assignedStaffId = isset($leadData['assigned']) ? (int) $leadData['assigned'] : 0;
+            $unichatAgentName = trim((string) (
+                $payload['meta']['assignee']['name'] 
+                ?? ($payload['meta']['assignee']['available_name'] 
+                ?? ($payload['messages'][0]['sender']['name'] 
+                ?? ($payload['messages'][0]['sender']['available_name'] ?? '')))
+            ));
+            $this->leadlookup_model->set_lead_creator_and_activity($leadId, $assignedStaffId, $unichatAgentName);
 
             $this->leadlookup_model->update_sync_log($logId, [
                 'status' => 'success',

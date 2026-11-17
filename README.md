@@ -1,6 +1,6 @@
 # Lead Creator & Lookup Module
 
-Version 1.4.1
+Version 1.4.2
 
 An internal Perfex CRM module providing a webhook endpoint for **UniChat** lead creation and an API endpoint for **Phone Lookup**, featuring domain/IP security validation, configurable duplicate rules, assignee staff mapping, chat source/channel mapping, private note callbacks, and role-based activity reports.
 
@@ -99,6 +99,10 @@ When upgrading from an older version (e.g. v1.3.9 to v1.4.0):
 ---
 
 ## Version Changelog
+
+### v1.4.2
+- **Lead Creator & Activity Log Attribution:** Fixed lead creator name attribution in Perfex CRM Activity Log. When leads are created via UniChat webhook, the mapped staff member is now automatically registered as `addedfrom` and assigned as the creator in `tbllead_activity_log` (`[Staff Avatar] [Staff Name] - created lead`), preventing empty `- created lead` entries.
+- **Assignee Notification Log Fix:** Enhanced the initial `assigned to` activity feed entry to properly reflect attribution rather than starting with a blank string.
 
 ### v1.4.1
 - **Phone Report Native DataTables UI:** Replaced legacy custom table with Perfex CRM native `render_datatable('phone-reports')` featuring server-side AJAX processing, live search, date filtering, pagination, and export tools.
