@@ -206,7 +206,7 @@ class Leadlookup extends AdminController
         }
 
         $data['title'] = 'Lead Lookup Debug';
-        $data['module_version'] = '1.4.2';
+        $data['module_version'] = '1.4.3';
         $data['endpoint'] = site_url('leadlookup/create_from_chatwoot');
         $data['lookup_endpoint'] = site_url('leadlookup/by_phone');
         $data['allowed_raw'] = get_option('leadlookup_chatwoot_allowed_domains');

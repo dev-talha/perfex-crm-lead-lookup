@@ -52,6 +52,13 @@ $availableChannels = [
     background-color: #f8fafc !important;
     color: #1e293b !important;
 }
+.mapping-table-responsive {
+    overflow: visible !important;
+    min-height: 200px;
+}
+.mapping-table-responsive .bootstrap-select > .dropdown-menu {
+    z-index: 1050 !important;
+}
 </style>
 
 <div class="row" id="leadlookup_settings_container">
@@ -320,7 +327,7 @@ $availableChannels = [
 
                         <h5 class="bold tw-mb-3"><i class="fa-solid fa-user-gear tw-mr-1.5"></i> UniChat Assignee ID ➔ Perfex CRM Staff Mapping</h5>
                         <p class="text-muted tw-text-xs tw-mb-3">When a webhook arrives with a UniChat <code>assignee.id</code> (e.g. 112), the created lead will be automatically assigned to the corresponding Perfex CRM staff member.</p>
-                        <div class="table-responsive tw-mb-4">
+                        <div class="table-responsive mapping-table-responsive tw-mb-4">
                             <table class="table table-bordered table-striped" id="assignee_mapping_table">
                                 <thead>
                                     <tr>
@@ -334,10 +341,10 @@ $availableChannels = [
                                         foreach ($assigneeMap as $uId => $sId) { ?>
                                             <tr>
                                                 <td>
-                                                    <input type="text" name="settings[leadlookup_assignee_staff_mapping][unichat_id][]" value="<?php echo e($uId); ?>" class="form-group form-control" placeholder="e.g. 112" />
+                                                    <input type="text" name="settings[leadlookup_assignee_staff_mapping][unichat_id][]" value="<?php echo e($uId); ?>" class="form-control" placeholder="e.g. 112" />
                                                 </td>
                                                 <td>
-                                                    <select name="settings[leadlookup_assignee_staff_mapping][staff_id][]" class="form-control">
+                                                    <select name="settings[leadlookup_assignee_staff_mapping][staff_id][]" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="-- Select Staff --">
                                                         <option value="">-- Select Staff --</option>
                                                         <?php foreach ($staffList as $st) { ?>
                                                             <option value="<?php echo $st['staffid']; ?>" <?php echo ((string)$st['staffid'] === (string)$sId) ? 'selected' : ''; ?>>
@@ -357,7 +364,7 @@ $availableChannels = [
                                                 <input type="text" name="settings[leadlookup_assignee_staff_mapping][unichat_id][]" class="form-control" placeholder="e.g. 112" />
                                             </td>
                                             <td>
-                                                <select name="settings[leadlookup_assignee_staff_mapping][staff_id][]" class="form-control">
+                                                <select name="settings[leadlookup_assignee_staff_mapping][staff_id][]" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="-- Select Staff --">
                                                     <option value="">-- Select Staff --</option>
                                                     <?php foreach ($staffList as $st) { ?>
                                                         <option value="<?php echo $st['staffid']; ?>">
@@ -396,7 +403,7 @@ $availableChannels = [
                             <i class="fa-solid fa-circle-info tw-mr-1"></i> When a lead is created from a UniChat webhook, the module reads the <code>channel</code> parameter from the payload and automatically sets the corresponding <strong>Lead Source</strong> in Perfex CRM. If unmapped or missing, the <strong>Default Lead Source</strong> configured in <a href="#tab_creator_rules" onclick="$('a[href=\'#tab_creator_rules\']').tab('show');">Lead & Duplicate Rules</a> will be used.
                         </div>
 
-                        <div class="table-responsive tw-mb-4">
+                        <div class="table-responsive mapping-table-responsive tw-mb-4">
                             <table class="table table-bordered table-striped" id="channel_mapping_table">
                                 <thead>
                                     <tr>
@@ -410,7 +417,7 @@ $availableChannels = [
                                         foreach ($channelMap as $chan => $srcId) { ?>
                                             <tr>
                                                 <td>
-                                                    <select name="settings[leadlookup_channel_source_mapping][channel][]" class="form-control">
+                                                    <select name="settings[leadlookup_channel_source_mapping][channel][]" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="-- Select Channel --">
                                                         <option value="">-- Select Channel --</option>
                                                         <?php foreach ($availableChannels as $cVal => $cLabel) { ?>
                                                             <option value="<?php echo e($cVal); ?>" <?php echo ($cVal === $chan) ? 'selected' : ''; ?>>
@@ -423,7 +430,7 @@ $availableChannels = [
                                                     </select>
                                                 </td>
                                                 <td>
-                                                    <select name="settings[leadlookup_channel_source_mapping][source_id][]" class="form-control">
+                                                    <select name="settings[leadlookup_channel_source_mapping][source_id][]" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="-- Select Lead Source --">
                                                         <option value="">-- Select Lead Source --</option>
                                                         <?php foreach ($sourceList as $src) { ?>
                                                             <option value="<?php echo $src['id']; ?>" <?php echo ((string)$src['id'] === (string)$srcId) ? 'selected' : ''; ?>>
@@ -440,7 +447,7 @@ $availableChannels = [
                                     } else { ?>
                                         <tr>
                                             <td>
-                                                <select name="settings[leadlookup_channel_source_mapping][channel][]" class="form-control">
+                                                <select name="settings[leadlookup_channel_source_mapping][channel][]" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="-- Select Channel --">
                                                     <option value="">-- Select Channel --</option>
                                                     <?php foreach ($availableChannels as $cVal => $cLabel) { ?>
                                                         <option value="<?php echo e($cVal); ?>"><?php echo e($cLabel); ?></option>
@@ -448,7 +455,7 @@ $availableChannels = [
                                                 </select>
                                             </td>
                                             <td>
-                                                <select name="settings[leadlookup_channel_source_mapping][source_id][]" class="form-control">
+                                                <select name="settings[leadlookup_channel_source_mapping][source_id][]" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="-- Select Lead Source --">
                                                     <option value="">-- Select Lead Source --</option>
                                                     <?php foreach ($sourceList as $src) { ?>
                                                         <option value="<?php echo $src['id']; ?>"><?php echo e($src['name']); ?></option>
@@ -607,10 +614,14 @@ function addAssigneeRow() {
 
     var html = '<tr>' +
         '<td><input type="text" name="settings[leadlookup_assignee_staff_mapping][unichat_id][]" class="form-control" placeholder="e.g. 112" /></td>' +
-        '<td><select name="settings[leadlookup_assignee_staff_mapping][staff_id][]" class="form-control">' + staffSelectHtml + '</select></td>' +
+        '<td><select name="settings[leadlookup_assignee_staff_mapping][staff_id][]" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="-- Select Staff --">' + staffSelectHtml + '</select></td>' +
         '<td class="text-center"><button type="button" class="btn btn-danger btn-xs remove-row-btn" onclick="$(this).closest(\'tr\').remove()"><i class="fa fa-trash"></i></button></td>' +
         '</tr>';
-    $('#assignee_mapping_table tbody').append(html);
+    var $row = $(html);
+    $('#assignee_mapping_table tbody').append($row);
+    if (typeof init_selectpicker === 'function') {
+        init_selectpicker();
+    }
 }
 
 var leadlookup_channelsList = <?php echo json_encode($availableChannels, JSON_UNESCAPED_UNICODE); ?>;
@@ -639,11 +650,15 @@ function addChannelRow(customValue) {
     });
 
     var html = '<tr>' +
-        '<td><select name="settings[leadlookup_channel_source_mapping][channel][]" class="form-control">' + channelSelectHtml + '</select></td>' +
-        '<td><select name="settings[leadlookup_channel_source_mapping][source_id][]" class="form-control">' + sourceSelectHtml + '</select></td>' +
+        '<td><select name="settings[leadlookup_channel_source_mapping][channel][]" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="-- Select Channel --">' + channelSelectHtml + '</select></td>' +
+        '<td><select name="settings[leadlookup_channel_source_mapping][source_id][]" class="selectpicker" data-width="100%" data-live-search="true" data-none-selected-text="-- Select Lead Source --">' + sourceSelectHtml + '</select></td>' +
         '<td class="text-center"><button type="button" class="btn btn-danger btn-xs remove-row-btn" onclick="$(this).closest(\'tr\').remove()"><i class="fa fa-trash"></i></button></td>' +
         '</tr>';
-    $('#channel_mapping_table tbody').append(html);
+    var $row = $(html);
+    $('#channel_mapping_table tbody').append($row);
+    if (typeof init_selectpicker === 'function') {
+        init_selectpicker();
+    }
 }
 
 function addCustomChannelPrompt() {
@@ -654,6 +669,10 @@ function addCustomChannelPrompt() {
 }
 
 $(function() {
+    if (typeof init_selectpicker === 'function') {
+        init_selectpicker();
+    }
+
     function getUrlParam(name) {
         var results = new RegExp('[\?&]' + name + '=([^&#]*)').exec(window.location.href);
         return results ? results[1] : null;
@@ -670,6 +689,11 @@ $(function() {
             $link.closest('li').addClass('active');
             $('#leadlookup_settings_container ' + targetTab).addClass('active');
         }
+        setTimeout(function() {
+            if (typeof init_selectpicker === 'function') {
+                init_selectpicker();
+            }
+        }, 80);
     }
 
     activateTabFromUrl();
@@ -688,6 +712,18 @@ $(function() {
         $('#leadlookup_settings_container ' + target).addClass('active');
         
         if (history.pushState) {
+            history.pushState(null, null, target);
+        } else {
+            location.hash = target;
+        }
+
+        setTimeout(function() {
+            if (typeof init_selectpicker === 'function') {
+                init_selectpicker();
+            }
+        }, 80);
+    });
+});
             history.pushState(null, null, target);
         } else {
             location.hash = target;

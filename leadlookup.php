@@ -4,7 +4,7 @@ defined('BASEPATH') or exit('No direct script access allowed');
 /*
 Module Name: Lead Creator & Lookup
 Description: Internal API to lookup leads by phone and create leads from UniChat webhooks with domain/IP validation, Chat Source Mapping, and role-based reports under Utilities.
-Version: 1.4.2
+Version: 1.4.3
 Author: Internal
 */
 
